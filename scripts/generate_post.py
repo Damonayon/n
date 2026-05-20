@@ -161,7 +161,7 @@ def generate_content(article: dict) -> tuple[str, str]:
     """
     def _call():
         genai.configure(api_key=GEMINI_API_KEY)
-        model    = genai.GenerativeModel("gemini-1.5-flash")
+        model    = genai.GenerativeModel("gemini-2.0-flash")
         prompt   = GEMINI_PROMPT.format(**article)
         response = model.generate_content(prompt)
         return response.text.strip()
