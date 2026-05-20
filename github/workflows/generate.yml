@@ -1,0 +1,48 @@
+name: 📝 Генерация поста
+
+on:
+  schedule:
+    # 3 раза в день: 07:00, 13:00, 19:00 UTC = 10:00, 16:00, 22:00 МСК
+    - cron: "0 7,13,19 * * *"
+  workflow_dispatch:   # ← кнопка ручного запуска на GitHub
+
+# Не запускать одновременно — предотвращает конфликты в git
+concurrency:
+  group: generate-post
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📥 Клонируем репозиторий
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.11 + кэш зависимостей
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"        # ← кэширует pip — экономит ~40 секунд каждого запуска
+
+      - name: 📦 Устанавливаем зависимости
+        run: pip install -r requirements.txt
+
+      - name: 🚀 Генерируем пост и отправляем на одобрение
+        env:
+          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_MODERATOR_ID: ${{ secrets.TELEGRAM_MODERATOR_ID }}
+          TELEGRAM_CHANNEL_ID:   ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/generate_post.py
+
+      - name: 💾 Сохраняем данные в репозиторий
+        run: |
+          git config --local user.email "bot@github.com"
+          git config --local user.name  "Neuro-News Bot"
+          git pull --rebase origin main
+          git add data/
+          git diff --staged --quiet || git commit -m "📊 Обновление данных [skip ci]"
+          git push
