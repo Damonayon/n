@@ -4,7 +4,7 @@ generate_post.py  —  ВЕРСИЯ 4.0 (Groq + LLaMA)
 
 import os, json, time, random, hashlib, urllib.parse
 import requests, feedparser
-from groq import Groq
+import openai
 from datetime import datetime, timezone
 
 # ── Переменные окружения ──────────────────────────────────────────────────────
@@ -12,6 +12,10 @@ BOT_TOKEN    = os.environ["TELEGRAM_BOT_TOKEN"]
 MODERATOR_ID = os.environ["TELEGRAM_MODERATOR_ID"]
 CHANNEL_ID   = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+client = openai.OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=GROQ_API_KEY,
+)
 
 # ── RSS-ленты ─────────────────────────────────────────────────────────────────
 RSS_FEEDS = [
@@ -122,10 +126,9 @@ PROMPT_TEMPLATE = """Ты — редактор Telegram-канала «Нейр�
 
 def generate_content(article: dict) -> tuple:
     def _call():
-        client = Groq(api_key=GROQ_API_KEY)
         prompt = PROMPT_TEMPLATE.format(**article)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="meta-llama/llama-3.3-70b-instruct:free",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1000,
         )
