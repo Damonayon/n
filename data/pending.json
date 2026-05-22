@@ -14,5 +14,13 @@
     "article_url": "https://habr.com/ru/articles/1037906/?utm_campaign=1037906&utm_source=habrahabr&utm_medium=rss",
     "telegram_msg_id": 18,
     "created_at": "2026-05-22T03:34:59.311755+00:00"
+  },
+  "cb08e40240bbe044": {
+    "post_text": "Ты стал главным редактором Telegram-канала. Ты получаешь массив года — все на русском. Смотри, что вы хотишь кратко резюмировать и поделиться акцентами. Итог — краткий разговор у тебя о важных моментах статьи, подчеркивающий проблемы без оценки качества. Всё в русском, без названий.",
+    "image_url": "https://image.pollinations.ai/prompt/AI%20technology%20neural%20network%20cinematic%20dark%208k%2C%20no%20text%2C%20no%20watermark%2C%20no%20faces%2C%20professional?width=1080&height=1080&model=flux&nologo=true&enhance=true&seed=26764",
+    "article_title": "AI Evals: Почему без оценки качества ваш продукт стоит на месте",
+    "article_url": "https://habr.com/ru/articles/1037874/?utm_campaign=1037874&utm_source=habrahabr&utm_medium=rss",
+    "telegram_msg_id": 19,
+    "created_at": "2026-05-22T03:43:49.435842+00:00"
   }
 }
