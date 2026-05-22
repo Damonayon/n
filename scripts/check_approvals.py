@@ -1,6 +1,5 @@
 """
 check_approvals.py — ФИНАЛЬНАЯ ВЕРСИЯ
-Обрабатывает кнопки и публикует посты в канал с HTML-форматированием.
 """
 
 import os, json, requests
@@ -30,8 +29,7 @@ def save_json(path, data):
 def tg(method, payload):
     resp = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
-        json=payload,
-        timeout=15,
+        json=payload, timeout=15,
     )
     return resp.json()
 
@@ -43,19 +41,16 @@ def notify_moderator(text):
 
 def get_updates(offset):
     result = tg("getUpdates", {"offset": offset, "limit": 100, "timeout": 0})
-    if not result.get("ok"):
-        print(f"getUpdates ошибка: {result}")
-        return []
-    return result.get("result", [])
+    return result.get("result", []) if result.get("ok") else []
 
 def answer_callback(cq_id, text):
-    tg("answerCallbackQuery", {"callback_query_id": cq_id, "text": text, "show_alert": False})
+    tg("answerCallbackQuery", {
+        "callback_query_id": cq_id,
+        "text": text,
+        "show_alert": False,
+    })
 
 def publish_to_channel(post_text, image_url):
-    """
-    Публикует пост в канал с HTML-форматированием и картинкой.
-    """
-    # С картинкой
     if image_url:
         result = tg("sendPhoto", {
             "chat_id":    CHANNEL_ID,
@@ -65,34 +60,32 @@ def publish_to_channel(post_text, image_url):
         })
         if result.get("ok"):
             return True
-        print(f"Фото не отправилось: {result.get('description')}, пробую текстом...")
+        print(f"Фото не отправилось: {result.get('description')}")
 
-    # Без картинки — только текст с HTML
     result = tg("sendMessage", {
-        "chat_id":                  CHANNEL_ID,
-        "text":                     post_text[:4096],
-        "parse_mode":               "HTML",
+        "chat_id":    CHANNEL_ID,
+        "text":       post_text[:4096],
+        "parse_mode": "HTML",
         "disable_web_page_preview": False,
     })
     return result.get("ok", False)
 
-def update_moderator_message(msg_id, status_text):
-    """Убирает кнопки с сообщения модератора после обработки."""
+def remove_buttons(msg_id, label):
+    """Убирает кнопки и ставит статус."""
     for method in ("editMessageCaption", "editMessageText"):
-        field = "caption" if method == "editMessageCaption" else "text"
-        result = tg(method, {
-            "chat_id":    MODERATOR_ID,
-            "message_id": msg_id,
-            field:        status_text[:1024],
+        field = "caption" if "Caption" in method else "text"
+        r = tg(method, {
+            "chat_id":      MODERATOR_ID,
+            "message_id":   msg_id,
+            field:          label,
             "reply_markup": {"inline_keyboard": []},
         })
-        if result.get("ok"):
-            return
+        if r.get("ok"):
+            break
 
 
 def main():
     print(f"\nПроверка одобрений — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-
     try:
         pending     = load_json(PENDING_FILE, {})
         offset_data = load_json(OFFSET_FILE, {"offset": None})
@@ -115,56 +108,46 @@ def main():
             cq_id  = cq["id"]
             msg_id = cq["message"]["message_id"]
 
-            # ── ✅ ОДОБРЕНИЕ ──────────────────────────────────────────────────
             if data.startswith("approve_"):
                 art_id = data.removeprefix("approve_")
-
                 if art_id not in pending:
-                    answer_callback(cq_id, "⚠️ Этот пост уже обработан")
+                    answer_callback(cq_id, "⚠️ Уже обработан")
                     continue
 
-                item      = pending[art_id]
-                post_text = item["post_text"]
-                image_url = item.get("image_url", "")
-
-                success = publish_to_channel(post_text, image_url)
+                item    = pending[art_id]
+                success = publish_to_channel(item["post_text"], item.get("image_url", ""))
 
                 if success:
-                    answer_callback(cq_id, "✅ Пост опубликован в канале!")
-                    update_moderator_message(msg_id, "✅ ОПУБЛИКОВАНО")
+                    answer_callback(cq_id, "✅ Пост опубликован!")
+                    remove_buttons(msg_id, "✅ ОПУБЛИКОВАНО")
                     del pending[art_id]
                     changed = True
                     print(f"✅ Опубликован: {art_id}")
                 else:
-                    answer_callback(cq_id, "❌ Ошибка публикации — попробуй ещё раз")
-                    notify_moderator(f"❌ Не удалось опубликовать пост {art_id}")
+                    answer_callback(cq_id, "❌ Ошибка публикации")
+                    notify_moderator("❌ Не удалось опубликовать пост")
 
-            # ── ❌ ОТКЛОНЕНИЕ ─────────────────────────────────────────────────
             elif data.startswith("reject_"):
                 art_id = data.removeprefix("reject_")
-
                 if art_id not in pending:
-                    answer_callback(cq_id, "⚠️ Этот пост уже обработан")
+                    answer_callback(cq_id, "⚠️ Уже обработан")
                     continue
-
-                answer_callback(cq_id, "❌ Пост отклонён")
-                update_moderator_message(msg_id, "❌ ОТКЛОНЕНО")
+                answer_callback(cq_id, "❌ Отклонено")
+                remove_buttons(msg_id, "❌ ОТКЛОНЕНО")
                 del pending[art_id]
                 changed = True
                 print(f"❌ Отклонён: {art_id}")
 
         if changed:
             save_json(PENDING_FILE, pending)
-
         save_json(OFFSET_FILE, {"offset": new_offset})
-        print("Проверка завершена\n")
+        print("Готово\n")
 
     except Exception as e:
         error_msg = f"❌ Ошибка check_approvals:\n{type(e).__name__}: {e}"
         print(error_msg)
         notify_moderator(error_msg)
         raise
-
 
 if __name__ == "__main__":
     main()
