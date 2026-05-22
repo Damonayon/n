@@ -47,7 +47,9 @@ jobs:
         run: |
           git config --local user.email "bot@github.com"
           git config --local user.name  "Neuro-News Bot"
+          git stash
           git pull --rebase origin main
+          git stash pop || true
           git add data/
           git diff --staged --quiet || git commit -m "📊 Обновление данных [skip ci]"
           git push
