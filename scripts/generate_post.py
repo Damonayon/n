@@ -12,8 +12,8 @@ CHANNEL_ID     = os.environ["TELEGRAM_CHANNEL_ID"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent?key={key}"
+    "https://generativelanguage.googleapis.com/v1/models/"
+    "gemini-2.0-flash:generateContent?key={key}"
 )
 
 RSS_FEEDS = [
