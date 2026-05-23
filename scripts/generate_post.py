@@ -11,9 +11,14 @@ MODERATOR_ID   = os.environ["TELEGRAM_MODERATOR_ID"]
 CHANNEL_ID     = os.environ["TELEGRAM_CHANNEL_ID"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
+GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash-latest",
+]
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1/models/"
-    "gemini-2.0-flash:generateContent?key={key}"
+    "{model}:generateContent?key={key}"
 )
 
 RSS_FEEDS = [
@@ -138,32 +143,38 @@ PROMPT = """Ты — главный редактор топового русск
 Верни ТОЛЬКО валидный JSON."""
 
 
-def call_gemini(prompt, attempt=0):
-    """Прямой вызов Gemini API через requests."""
-    url  = GEMINI_URL.format(key=GEMINI_API_KEY)
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature":     0.8,
-            "maxOutputTokens": 1500,
-            "topP":            0.95,
-        },
-    }
-    resp = requests.post(url, json=body, timeout=60)
-
-    if resp.status_code == 200:
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    elif resp.status_code == 429:
-        wait = 30 * (attempt + 1)
-        print(f"Rate limit от Gemini, жду {wait}с...")
-        time.sleep(wait)
-        if attempt < 3:
-            return call_gemini(prompt, attempt + 1)
-        raise RuntimeError("Gemini rate limit исчерпан")
-    else:
-        raise RuntimeError(f"Gemini вернул {resp.status_code}: {resp.text[:300]}")
-
+def call_gemini(prompt):
+    for model in GEMINI_MODELS:
+        print(f"Пробую модель: {model}")
+        for attempt in range(4):
+            try:
+                url  = GEMINI_URL.format(model=model, key=GEMINI_API_KEY)
+                body = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature":     0.8,
+                        "maxOutputTokens": 1500,
+                        "topP":            0.95,
+                    },
+                }
+                resp = requests.post(url, json=body, timeout=60)
+                if resp.status_code == 200:
+                    print(f"✓ Ответ от {model}")
+                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                elif resp.status_code == 429:
+                    wait = 60 * (attempt + 1)
+                    print(f"  Rate limit, жду {wait}с...")
+                    time.sleep(wait)
+                elif resp.status_code == 404:
+                    print(f"  Модель {model} недоступна, следующая...")
+                    break
+                else:
+                    print(f"  Ошибка {resp.status_code}, жду 10с...")
+                    time.sleep(10)
+            except Exception as e:
+                print(f"  Исключение: {e}")
+                time.sleep(10)
+    raise RuntimeError("Все модели Gemini недоступны")
 
 def parse_json_response(raw):
     """Надёжный парсинг JSON из ответа Gemini."""
