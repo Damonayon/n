@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Базы данных (локальные, не в репо)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# IDE / редакторы
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Логи
+*.log
+logs/
+
+# Локальные секреты Claude Code
+.claude/settings.local.json

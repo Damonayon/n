@@ -34,7 +34,7 @@ jobs:
           TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_MODERATOR_ID: ${{ secrets.TELEGRAM_MODERATOR_ID }}
           TELEGRAM_CHANNEL_ID:   ${{ secrets.TELEGRAM_CHANNEL_ID }}
-          GITHUB_TOKEN:          ${{ secrets.GH_MODELS_TOKEN }}
+          GH_MODELS_TOKEN:       ${{ secrets.GH_MODELS_TOKEN }}
 
           # ─── Конфиг канала (можно переопределить через secrets для каждого канала) ───
           CHANNEL_TOPIC:    ${{ vars.CHANNEL_TOPIC    || 'Нейро-новости' }}

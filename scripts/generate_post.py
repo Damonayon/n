@@ -16,10 +16,10 @@ import requests, feedparser
 from datetime import datetime, timezone
 
 # ─── Telegram + GitHub Models ────────────────────────────────────────────────
-BOT_TOKEN    = os.environ["TELEGRAM_BOT_TOKEN"]
-MODERATOR_ID = os.environ["TELEGRAM_MODERATOR_ID"]
-CHANNEL_ID   = os.environ["TELEGRAM_CHANNEL_ID"]
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+BOT_TOKEN       = os.environ["TELEGRAM_BOT_TOKEN"]
+MODERATOR_ID    = os.environ["TELEGRAM_MODERATOR_ID"]
+CHANNEL_ID      = os.environ["TELEGRAM_CHANNEL_ID"]
+GH_MODELS_TOKEN = os.environ["GH_MODELS_TOKEN"]
 
 GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/chat/completions"
 MODELS = ["gpt-4o", "gpt-4o-mini"]
@@ -147,7 +147,7 @@ def call_model(model, messages, temperature=0.7, max_tokens=1500):
     resp = requests.post(
         GITHUB_MODELS_URL,
         headers={
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Authorization": f"Bearer {GH_MODELS_TOKEN}",
             "Content-Type":  "application/json",
         },
         json={
