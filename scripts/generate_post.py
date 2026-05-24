@@ -50,6 +50,7 @@ from bot.storage import (  # noqa: E402
     known_article_hashes,
     save_article,
 )
+from bot.utils import best_telegram_file_id, canonicalize_url  # noqa: E402
 
 
 # ─── Константы внешних сервисов ──────────────────────────────────────────────
@@ -474,7 +475,14 @@ def build_image_url(prompt: str) -> str:
 # ─── Telegram: отправка на одобрение ─────────────────────────────────────────
 
 
-def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
+def send_for_approval(
+    post_text: str, image_url: str, art_hash_str: str
+) -> Tuple[int, str | None]:
+    """Отправляет пост модератору. Возвращает (message_id, file_id|None).
+
+    file_id важен: при публикации мы используем его, а не image_url,
+    чтобы публикация не зависела от доступности Pollinations (см. T1.5/C5).
+    """
     keyboard = {
         "inline_keyboard": [
             [
@@ -498,8 +506,13 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
         timeout=25,
     ).json()
 
-    if not result.get("ok"):
-        log.warning("Фото не загрузилось (%s), отправляю текстом", result.get("description"))
+    file_id: str | None = None
+    if result.get("ok"):
+        file_id = best_telegram_file_id(result)
+    else:
+        log.warning(
+            "Фото не загрузилось (%s), отправляю текстом", result.get("description")
+        )
         result = http_post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json={
@@ -513,7 +526,7 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
     if not result.get("ok"):
         raise RuntimeError(f"Telegram ошибка: {result}")
 
-    return result["result"]["message_id"]
+    return result["result"]["message_id"], file_id
 
 
 # ─── ГЛАВНАЯ ФУНКЦИЯ ─────────────────────────────────────────────────────────
@@ -590,8 +603,14 @@ def main() -> None:
         log.info("Image: %s", image_prompt[:80])
 
         image_url = build_image_url(image_prompt)
-        msg_id = send_for_approval(post_text, image_url, best_article["id"])
-        log.info("✅ Отправлено модератору (msg_id=%d)", msg_id)
+        msg_id, image_file_id = send_for_approval(
+            post_text, image_url, best_article["id"]
+        )
+        log.info(
+            "✅ Отправлено модератору (msg_id=%d, file_id=%s)",
+            msg_id,
+            (image_file_id[:16] + "…") if image_file_id else "none",
+        )
 
         # Финальная транзакция: сохраняем рубрику и создаём pending-Post
         with session_scope() as session:
@@ -611,6 +630,7 @@ def main() -> None:
                 post_text=post_text,
                 image_url=image_url,
                 image_prompt=image_prompt,
+                image_file_id=image_file_id,
                 moderator_msg_id=msg_id,
                 model_used=model_used,
             )

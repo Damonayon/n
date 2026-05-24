@@ -127,6 +127,10 @@ class Post(Base):
     post_text: Mapped[str] = mapped_column(Text)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Telegram file_id картинки. Сохраняется при отправке модератору. При публикации
+    # используется он вместо image_url — гарантирует, что картинка не "испарится"
+    # если внешний хостинг (Pollinations) лежит. См. T1.5.
+    image_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     moderator_msg_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(
         String(32), default=POST_STATUS_PENDING, index=True

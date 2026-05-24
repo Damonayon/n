@@ -77,13 +77,27 @@ def answer_callback(cq_id: str, text: str) -> None:
     )
 
 
-def publish_to_channel(post_text: str, image_url: str | None) -> bool:
-    if image_url and len(post_text) <= 1024:
+def publish_to_channel(
+    post_text: str,
+    image_file_id: str | None,
+    image_url: str | None,
+) -> bool:
+    """Публикует пост в канал.
+
+    Источник картинки в порядке предпочтения:
+    1. image_file_id — Telegram-нативный, не зависит от внешних сервисов.
+    2. image_url — fallback (например, для старых постов без file_id).
+
+    Если фото не помещается в caption (>1024) — шлём отдельно картинку и текст.
+    """
+    photo_source = image_file_id or image_url
+
+    if photo_source and len(post_text) <= 1024:
         result = tg(
             "sendPhoto",
             {
                 "chat_id": settings.telegram_channel_id,
-                "photo": image_url,
+                "photo": photo_source,
                 "caption": post_text,
                 "parse_mode": "HTML",
             },
@@ -92,8 +106,11 @@ def publish_to_channel(post_text: str, image_url: str | None) -> bool:
             return True
         log.warning("Фото не отправилось: %s", result.get("description"))
 
-    if image_url:
-        tg("sendPhoto", {"chat_id": settings.telegram_channel_id, "photo": image_url})
+    if photo_source:
+        tg(
+            "sendPhoto",
+            {"chat_id": settings.telegram_channel_id, "photo": photo_source},
+        )
 
     result = tg(
         "sendMessage",
@@ -188,10 +205,11 @@ def _handle_approve(channel_id: int, art_hash: str, cq_id: str, msg_id: int) -> 
             return
         post_text = post.post_text
         image_url = post.image_url
+        image_file_id = post.image_file_id
         post_id = post.id
 
     # 2) Сетевой вызов БЕЗ открытой транзакции
-    success = publish_to_channel(post_text, image_url)
+    success = publish_to_channel(post_text, image_file_id, image_url)
 
     # 3) Фиксируем результат
     with session_scope() as session:

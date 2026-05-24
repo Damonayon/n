@@ -25,6 +25,7 @@ from bot.models import (
     Post,
     SystemState,
 )
+from bot.utils import canonicalize_url
 
 
 # ─── channels ────────────────────────────────────────────────────────────────
@@ -65,8 +66,13 @@ def ensure_channel(session: Session) -> Channel:
 
 
 def article_hash(url: str) -> str:
-    """Стабильный 16-символьный ID статьи (совместим со старым форматом)."""
-    return hashlib.md5(url.encode("utf-8")).hexdigest()[:16]
+    """Стабильный 16-символьный ID статьи.
+
+    Считается от КАНОНИЧЕСКОЙ формы URL: одна и та же статья,
+    пришедшая с разными UTM-метками, даст один хэш и не задвоится.
+    """
+    canonical = canonicalize_url(url)
+    return hashlib.md5(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def known_article_hashes(session: Session, channel_id: int) -> set[str]:
@@ -135,6 +141,7 @@ def create_pending_post(
     image_url: Optional[str],
     image_prompt: Optional[str],
     moderator_msg_id: int,
+    image_file_id: Optional[str] = None,
     model_used: Optional[str] = None,
 ) -> Post:
     """Создаёт пост в статусе pending (отправлен модератору)."""
@@ -144,6 +151,7 @@ def create_pending_post(
         post_text=post_text,
         image_url=image_url,
         image_prompt=image_prompt,
+        image_file_id=image_file_id,
         moderator_msg_id=moderator_msg_id,
         model_used=model_used,
         status=POST_STATUS_PENDING,
