@@ -9,7 +9,7 @@
 - [x] **T1.1** — Полный аудит существующего кода → [AUDIT.md](AUDIT.md) ✓
 - [x] **T1.2** — Миграция с JSON на SQLite + SQLAlchemy ✓
 - [x] **T1.3** — Централизованное логирование (stdout + БД + Telegram-алерт + Sentry опционально) ✓
-- [ ] **T1.4** — Retry-логика и Circuit Breaker (`tenacity`)
+- [x] **T1.4** — Retry + Circuit Breaker + Deadline (`tenacity`, `bot/http.py`) ✓
 - [ ] **T1.5** — Health-check workflow (каждые 30 мин)
 - [ ] **T1.6** — Backup-стратегия (ежедневный бэкап БД в git-ветку)
 - [ ] **T1.7** — Защита секретов и безопасность (`gitleaks`, `SECURITY.md`)
@@ -68,13 +68,8 @@
 
 ---
 
-**Текущая задача:** T1.4 — Retry-логика и Circuit Breaker (`tenacity`) — ждёт «go»
+**Текущая задача:** T1.5 — Health-check workflow
 
-**Бонусом закрыто в T1.2:**
-- C2 — общая `concurrency.group: data-write` для обоих workflow
-- C6 — валидация env через pydantic-settings
-- W1 — общий пакет `bot/` (нет дублей)
-
-**Бонусом закрыто в T1.3:**
-- C3 — нет голых `except Exception` со swallow, теперь `log.exception(...)`
-- Базовая часть W10 — ошибки видны в логах и в Telegram-алерте
+**Бонусом закрыто в T1.2:** C2, C6, W1
+**Бонусом закрыто в T1.3:** C3, часть W10
+**Бонусом закрыто в T1.4:** W3 (deadline), W8 (RSS через requests+UA+timeout)

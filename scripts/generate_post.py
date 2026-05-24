@@ -34,6 +34,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
+from bot.http import (  # noqa: E402
+    CircuitOpenError,
+    DeadlineExceededError,
+    RetryableHttpStatus,
+    http_get,
+    http_post,
+    set_deadline,
+)
 from bot.logging_setup import get_logger, setup_logging  # noqa: E402
 from bot.storage import (  # noqa: E402
     article_hash,
@@ -52,6 +60,8 @@ MODELS = ["gpt-4o", "gpt-4o-mini"]
 ENTRIES_PER_FEED = 5
 # Сколько кандидатов прогонять через фильтр качества за один запуск
 MAX_CANDIDATES_TO_FILTER = 10
+# Общий таймбюджет на весь процесс генерации
+PROCESS_DEADLINE_SEC = 300  # 5 минут
 
 
 # ─── Конфигурация ────────────────────────────────────────────────────────────
@@ -65,12 +75,12 @@ log = get_logger("generate_post")
 def notify_moderator(text: str) -> None:
     """Отправка алерта модератору. Сетевые ошибки не пробрасываем."""
     try:
-        requests.post(
+        http_post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json={"chat_id": settings.telegram_moderator_id, "text": text},
             timeout=10,
         )
-    except requests.RequestException as exc:
+    except (requests.RequestException, CircuitOpenError, DeadlineExceededError) as exc:
         log.warning("notify_moderator failed: %s", exc)
 
 
@@ -78,10 +88,16 @@ def notify_moderator(text: str) -> None:
 
 
 def fetch_articles() -> list[dict]:
+    """Скачиваем каждый RSS-фид через http_get (retry + UA + timeout),
+    парсим через feedparser из байтов. Ошибки одного фида не валят остальные."""
     articles: list[dict] = []
     for feed_url in settings.rss_feeds:
         try:
-            feed = feedparser.parse(feed_url)
+            resp = http_get(feed_url, timeout=15)
+            if resp.status_code != 200:
+                log.warning("RSS %s → HTTP %d", feed_url, resp.status_code)
+                continue
+            feed = feedparser.parse(resp.content)
             for entry in feed.entries[:ENTRIES_PER_FEED]:
                 url = entry.get("link", "")
                 if not url:
@@ -96,7 +112,12 @@ def fetch_articles() -> list[dict]:
                         "source_feed": feed_url,
                     }
                 )
-        except Exception as exc:
+        except (requests.RequestException, CircuitOpenError) as exc:
+            log.warning("RSS недоступен %s: %s", feed_url, exc)
+        except DeadlineExceededError:
+            log.warning("Deadline во время загрузки RSS — прерываю фетч")
+            break
+        except Exception as exc:  # парсер feedparser может бросить что угодно
             log.warning("RSS-ошибка %s: %s", feed_url, exc)
     log.info("Всего статей из RSS: %d", len(articles))
     return articles
@@ -283,7 +304,7 @@ IMAGE PROMPT (английский, до 130 символов)
 
 
 def _call_model(model: str, messages: list[dict], temperature: float, max_tokens: int):
-    return requests.post(
+    return http_post(
         GITHUB_MODELS_URL,
         headers={
             "Authorization": f"Bearer {settings.gh_models_token}",
@@ -302,28 +323,34 @@ def _call_model(model: str, messages: list[dict], temperature: float, max_tokens
 def call_ai(
     messages: list[dict], *, temperature: float = 0.7, max_tokens: int = 1500
 ) -> Tuple[str, str]:
-    """Возвращает (content, model_used)."""
+    """Возвращает (content, model_used).
+
+    http_post сам ретраит 429/5xx с exponential backoff. Здесь мы лишь
+    переключаемся на следующую модель из MODELS, если первая «закончилась»
+    (исчерпан лимит ретраев или модель навсегда недоступна).
+    """
+    last_err: Exception | None = None
     for model in MODELS:
-        for attempt in range(3):
-            try:
-                resp = _call_model(model, messages, temperature, max_tokens)
-                if resp.status_code == 200:
-                    content = resp.json()["choices"][0]["message"]["content"].strip()
-                    return content, model
-                if resp.status_code == 429:
-                    wait = 20 * (attempt + 1)
-                    log.warning("Rate limit %s, жду %dс", model, wait)
-                    time.sleep(wait)
-                    continue
-                if resp.status_code in (400, 404):
-                    log.warning("%s недоступна (HTTP %d), пробую следующую", model, resp.status_code)
-                    break
-                log.warning("%s ошибка %d: %s", model, resp.status_code, resp.text[:150])
-                time.sleep(5)
-            except requests.RequestException as exc:
-                log.warning("Сетевое исключение при вызове %s: %s", model, exc)
-                time.sleep(5)
-    raise RuntimeError("Все модели недоступны")
+        try:
+            resp = _call_model(model, messages, temperature, max_tokens)
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                return content, model
+            # 400/404: модель недоступна → пробуем следующую (без retry)
+            log.warning(
+                "%s недоступна (HTTP %d): %s", model, resp.status_code, resp.text[:150]
+            )
+        except RetryableHttpStatus as exc:
+            # Все ретраи исчерпаны (rate limit / 5xx) — пробуем след. модель
+            log.warning("%s: исчерпаны ретраи (%s)", model, exc)
+            last_err = exc
+        except (CircuitOpenError, DeadlineExceededError) as exc:
+            # Это уже не наше дело — пробрасываем наверх
+            raise
+        except requests.RequestException as exc:
+            log.warning("%s: сетевая ошибка после ретраев: %s", model, exc)
+            last_err = exc
+    raise RuntimeError(f"Все модели недоступны: {last_err}")
 
 
 def _extract_json(raw: str) -> dict:
@@ -460,7 +487,7 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
     preview = re.sub(r"<[^>]+>", "", post_text)
     caption = f"📬 Новый пост [{settings.channel_topic}]:\n\n{preview}"
 
-    result = requests.post(
+    result = http_post(
         f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendPhoto",
         json={
             "chat_id": settings.telegram_moderator_id,
@@ -473,7 +500,7 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
 
     if not result.get("ok"):
         log.warning("Фото не загрузилось (%s), отправляю текстом", result.get("description"))
-        result = requests.post(
+        result = http_post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json={
                 "chat_id": settings.telegram_moderator_id,
@@ -494,6 +521,7 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
 
 def main() -> None:
     setup_logging()
+    set_deadline(PROCESS_DEADLINE_SEC)
     log.info("=== Канал «%s» — %s ===", settings.channel_topic,
              datetime.now().strftime("%Y-%m-%d %H:%M"))
 

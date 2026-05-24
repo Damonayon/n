@@ -128,6 +128,9 @@ class _TelegramAlertHandler(logging.Handler):
                 text_lines.append(f"\n<pre>{exc_txt[:1500]}</pre>")
             text = "\n".join(text_lines)[:4000]
 
+            # Используем "сырой" requests, а не http-обёртку: если упадёт
+            # bot.http, логирование не должно ввязываться в его retry-цикл
+            # (иначе ERROR от http_post снова дёрнет TelegramAlertHandler).
             requests.post(
                 f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
                 json={

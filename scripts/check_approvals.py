@@ -18,6 +18,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
+from bot.http import (  # noqa: E402
+    CircuitOpenError,
+    DeadlineExceededError,
+    http_post,
+    set_deadline,
+)
 from bot.logging_setup import get_logger, setup_logging  # noqa: E402
 from bot.models import Post  # noqa: E402
 from bot.storage import (  # noqa: E402
@@ -33,19 +39,22 @@ from bot.storage import (  # noqa: E402
 settings = get_settings()
 log = get_logger("check_approvals")
 
+# Этот скрипт короткий (cron каждые 10 мин) — даём ему 2 минуты на всё.
+PROCESS_DEADLINE_SEC = 120
+
 
 # ─── Telegram-обёртки ────────────────────────────────────────────────────────
 
 
 def tg(method: str, payload: dict) -> dict:
     try:
-        resp = requests.post(
+        resp = http_post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/{method}",
             json=payload,
             timeout=15,
         )
         return resp.json()
-    except requests.RequestException as exc:
+    except (requests.RequestException, CircuitOpenError, DeadlineExceededError) as exc:
         return {"ok": False, "description": f"network: {exc}"}
 
 
@@ -119,6 +128,7 @@ def remove_buttons(msg_id: int, status_label: str) -> None:
 
 def main() -> None:
     setup_logging()
+    set_deadline(PROCESS_DEADLINE_SEC)
     log.info("=== Проверка одобрений [%s] — %s ===",
              settings.channel_topic, datetime.now().strftime("%Y-%m-%d %H:%M"))
     init_db()
