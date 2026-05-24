@@ -1,5 +1,5 @@
 """
-generate_post.py — ФИНАЛЬНАЯ ВЕРСИЯ на Gemini
+generate_post.py — GitHub Models (GPT-4o)
 """
 
 import os, json, time, random, hashlib, urllib.parse, re
@@ -9,17 +9,12 @@ from datetime import datetime, timezone
 BOT_TOKEN      = os.environ["TELEGRAM_BOT_TOKEN"]
 MODERATOR_ID   = os.environ["TELEGRAM_MODERATOR_ID"]
 CHANNEL_ID     = os.environ["TELEGRAM_CHANNEL_ID"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GITHUB_TOKEN   = os.environ["GITHUB_TOKEN"]
 
-GEMINI_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash-latest",
-]
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1/models/"
-    "{model}:generateContent?key={key}"
-)
+GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/chat/completions"
+
+# GPT-4o → GPT-4o-mini как запасной
+MODELS = ["gpt-4o", "gpt-4o-mini"]
 
 RSS_FEEDS = [
     "https://habr.com/ru/rss/hub/artificial_intelligence/all/",
@@ -70,7 +65,6 @@ def fetch_articles():
                 url = entry.get("link", "")
                 if not url:
                     continue
-                # Убираем HTML-теги из summary
                 summary = re.sub(r'<[^>]+>', '', entry.get("summary", ""))
                 articles.append({
                     "id":      article_id(url),
@@ -84,124 +78,148 @@ def fetch_articles():
     return articles
 
 
-PROMPT = """Ты — главный редактор топового русскоязычного Telegram-канала «Нейро-новости» об искусственном интеллекте. У тебя 500 000 подписчиков. Твои посты — вирусные, умные, живые.
+SYSTEM = """Ты — главный редактор топового Telegram-канала «Нейро-новости» об ИИ.
+Аудитория: русскоязычные, 18-45 лет, интересуются технологиями и будущим.
+Твои посты — вирусные, умные, живые. Отвечай ТОЛЬКО валидным JSON."""
 
-Напиши пост на основе этой новости:
+USER_PROMPT = """Напиши Telegram-пост про эту новость об ИИ.
 
-ЗАГОЛОВОК: {title}
-СОДЕРЖАНИЕ: {summary}
-ССЫЛКА: {url}
+НОВОСТЬ:
+Заголовок: {title}
+Содержание: {summary}
+Ссылка: {url}
 
-Верни ТОЛЬКО JSON (никакого текста до или после):
-{{"post": "текст поста", "image_prompt": "english prompt"}}
+Верни ТОЛЬКО JSON:
+{{"post": "текст поста", "image_prompt": "english visual prompt"}}
 
-━━━ ТРЕБОВАНИЯ К ПОСТУ ━━━
+━━━ СТРУКТУРА ПОСТА ━━━
 
-Язык: строго русский.
+Строка 1 — КРЮЧОК (останавливает скролл):
+Примеры стиля:
+• «ИИ сделал за 4 секунды то, на что юрист тратит день ⚡»
+• «Google скрывал это полгода. Больше не скрывает 🔓»
+• «Твоя профессия в этом списке? Проверь 👇»
+• «<b>93%</b> менеджеров не знают об этом инструменте. А зря 🎯»
 
-СТРУКТУРА:
-1. КРЮЧОК (1 строка) — останавливает скролл. Примеры стиля:
-   • «ИИ только что сделал то, что юристы делали годами — за 4 секунды ⚡»
-   • «Google это скрывал. Теперь скрывать нечего 🔓»
-   • «Твоя профессия в списке. Проверь 👇»
+(пустая строка)
 
-2. (пустая строка)
+2-3 предложения — СУТЬ:
+Что произошло, простым языком. Конкретные цифры если есть. Никакого жаргона.
 
-3. СУТЬ (3-4 предложения) — что произошло простым языком. Конкретные цифры и факты. Никакого жаргона. Как рассказываешь другу.
+(пустая строка)
 
-4. (пустая строка)
+2-3 предложения — ПОЧЕМУ ЭТО ВАЖНО ТЕБЕ:
+Конкретно для читателя: «Если ты фрилансер...», «Для малого бизнеса это значит...»
+Живо, лично, без воды.
 
-5. ПОЧЕМУ ЭТО ВАЖНО ТЕБЕ (2-3 предложения) — конкретно: «Если ты работаешь с текстом...», «Для предпринимателей это значит...». Живо и лично.
+(пустая строка)
 
-6. (пустая строка)
+1 строка — ВОПРОС или ОСТРЫЙ ТЕЗИС:
+Провоцирует обсуждение. Заставляет написать комментарий.
 
-7. ВОПРОС или ТЕЗИС (1 строка) — провоцирует обсуждение в комментариях.
+(пустая строка)
 
-8. (пустая строка)
+#ИИ #нейросети #тематический_хештег
 
-9. #ИИ #нейросети #тематический_хештег
+(пустая строка)
 
-10. (пустая строка)
+<a href="{url}">📖 Читать полностью</a>
 
-11. <a href="{url}">📖 Читать полностью</a>
+━━━ ПРАВИЛА ФОРМАТИРОВАНИЯ ━━━
+• Язык: ТОЛЬКО русский
+• <b>жирный</b> — ровно 2-3 раза для ключевых фактов/цифр
+• Эмодзи: 5-7 штук, уместно, не подряд
+• Длина: 180-250 слов — строго
+• Запрещено: «революция», «прорыв», «невероятный», «уникальный»
+• Тон: умный друг с характером — как лучшие российские tech-блогеры
 
-ФОРМАТИРОВАНИЕ:
-• <b>жирный</b> — ровно 2-3 раза, только для самых важных слов
-• Эмодзи: 5-7 штук, уместно по тексту, не подряд
-• Длина: 180-250 слов — не больше, не меньше
-• Запрещено использовать: «революция», «прорыв», «невероятный», «уникальный», «потрясающий»
-• Тон: умный, живой, с характером — как лучшие российские tech-медиа
-
-━━━ ТРЕБОВАНИЯ К IMAGE PROMPT ━━━
-• Английский язык
-• Абстрактная концептуальная иллюстрация к теме новости
-• Стиль: cinematic concept art, dark background, neon glow, ultra detailed, 8k
-• Строго: NO humans, NO faces, NO people, NO text, NO letters
-• Пример хорошего промпта: «glowing AI processor dark space electric blue neon circuits cinematic 8k ultra detailed»
-• Длина: до 120 символов
-
-Верни ТОЛЬКО валидный JSON."""
+━━━ IMAGE PROMPT ━━━
+• Английский, до 120 символов
+• Абстрактная концептуальная иллюстрация к теме
+• Стиль: cinematic concept art, dark background, neon glow, 8k, ultra detailed
+• ЗАПРЕЩЕНО: humans, faces, people, text, letters, words
+• Пример: «glowing AI processor dark space electric blue circuits neon 8k cinematic»"""
 
 
-def call_gemini(prompt):
-    for model in GEMINI_MODELS:
-        print(f"Пробую модель: {model}")
+def call_model(model, messages):
+    resp = requests.post(
+        GITHUB_MODELS_URL,
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Content-Type":  "application/json",
+        },
+        json={
+            "model":       model,
+            "messages":    messages,
+            "max_tokens":  1500,
+            "temperature": 0.82,
+        },
+        timeout=60,
+    )
+    return resp.status_code, resp
+
+
+def call_ai(prompt):
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user",   "content": prompt},
+    ]
+
+    for model in MODELS:
+        print(f"Пробую: {model}")
         for attempt in range(4):
             try:
-                url  = GEMINI_URL.format(model=model, key=GEMINI_API_KEY)
-                body = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature":     0.8,
-                        "maxOutputTokens": 1500,
-                        "topP":            0.95,
-                    },
-                }
-                resp = requests.post(url, json=body, timeout=60)
-                if resp.status_code == 200:
+                status, resp = call_model(model, messages)
+
+                if status == 200:
+                    content = resp.json()["choices"][0]["message"]["content"].strip()
                     print(f"✓ Ответ от {model}")
-                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                elif resp.status_code == 429:
-                    wait = 60 * (attempt + 1)
+                    return content
+
+                elif status == 429:
+                    wait = 30 * (attempt + 1)
                     print(f"  Rate limit, жду {wait}с...")
                     time.sleep(wait)
-                elif resp.status_code == 404:
-                    print(f"  Модель {model} недоступна, следующая...")
+
+                elif status in (404, 400):
+                    print(f"  Модель {model} недоступна → следующая")
                     break
+
                 else:
-                    print(f"  Ошибка {resp.status_code}, жду 10с...")
+                    print(f"  Ошибка {status}: {resp.text[:150]}")
                     time.sleep(10)
+
             except Exception as e:
                 print(f"  Исключение: {e}")
                 time.sleep(10)
-    raise RuntimeError("Все модели Gemini недоступны")
 
-def parse_json_response(raw):
-    """Надёжный парсинг JSON из ответа Gemini."""
+    raise RuntimeError("Все модели недоступны")
+
+
+def parse_response(raw):
     clean = raw.strip()
 
-    # Убираем markdown-блоки если есть
     if "```" in clean:
         parts = clean.split("```")
         for part in parts:
             part = part.strip()
             if part.startswith("json"):
-                part = part[4:]
-            if part.strip().startswith("{"):
-                clean = part.strip()
+                part = part[4:].strip()
+            if part.startswith("{"):
+                clean = part
                 break
 
-    data = json.loads(clean)
+    data         = json.loads(clean)
     post_text    = data.get("post", "").strip()
     image_prompt = data.get("image_prompt", "").strip()
 
     if not post_text:
-        raise ValueError("Пустое поле post")
+        raise ValueError("Пустой пост")
 
-    # Проверяем что текст на русском
-    ru_chars = sum(1 for c in post_text if '\u0400' <= c <= '\u04FF')
-    if ru_chars < 30:
-        raise ValueError(f"Пост не на русском (русских букв: {ru_chars})")
+    # Проверка на русский язык
+    ru = sum(1 for c in post_text if '\u0400' <= c <= '\u04FF')
+    if ru < 30:
+        raise ValueError(f"Пост не на русском (ru символов: {ru})")
 
     if not image_prompt:
         image_prompt = "AI neural network dark space neon glow cinematic 8k"
@@ -210,25 +228,23 @@ def parse_json_response(raw):
 
 
 def generate_content(article):
-    prompt = PROMPT.format(**article)
+    prompt = USER_PROMPT.format(**article)
 
     for attempt in range(3):
         try:
-            raw = call_gemini(prompt)
-            post_text, image_prompt = parse_json_response(raw)
-            print(f"✓ Пост сгенерирован: {len(post_text)} символов")
-            return post_text, image_prompt
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            raw = call_ai(prompt)
+            return parse_response(raw)
+        except (json.JSONDecodeError, ValueError) as e:
             print(f"Попытка {attempt+1}: ошибка парсинга — {e}")
             time.sleep(5)
 
-    raise RuntimeError("Не удалось получить корректный пост от Gemini")
+    raise RuntimeError("Не удалось получить корректный пост")
 
 
-def build_image_url(image_prompt):
-    """Квадрат 1080x1080 — стандарт для Telegram."""
+def build_image_url(prompt):
+    """1080x1080 — квадрат, идеал для Telegram. Модель flux — лучшее качество."""
     seed    = random.randint(10000, 99999)
-    full    = f"{image_prompt}, NO humans, NO faces, NO text, NO letters, abstract only"
+    full    = f"{prompt}, NO humans, NO faces, NO text, NO letters, abstract only"
     encoded = urllib.parse.quote(full)
     return (
         f"https://image.pollinations.ai/prompt/{encoded}"
@@ -244,11 +260,9 @@ def send_for_approval(post_text, image_url, art_id):
         ]]
     }
 
-    # Для превью модератору убираем HTML-теги
-    clean_preview = re.sub(r'<[^>]+>', '', post_text)
-    caption = f"📬 Новый пост на одобрение:\n\n{clean_preview}"
+    preview = re.sub(r'<[^>]+>', '', post_text)
+    caption = f"📬 Новый пост на одобрение:\n\n{preview}"
 
-    # Сначала пробуем с картинкой
     result = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
         json={
@@ -260,9 +274,8 @@ def send_for_approval(post_text, image_url, art_id):
         timeout=25,
     ).json()
 
-    # Если картинка не загрузилась — отправляем текстом
     if not result.get("ok"):
-        print(f"Фото не загрузилось ({result.get('description')}), отправляю текстом")
+        print(f"Фото не загрузилось, отправляю текстом")
         result = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
@@ -281,7 +294,7 @@ def send_for_approval(post_text, image_url, art_id):
 
 def main():
     print(f"\n{'='*50}")
-    print(f"Запуск генерации — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"Запуск — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*50}")
 
     try:
@@ -292,19 +305,18 @@ def main():
         print(f"Новых статей: {len(new_articles)}")
 
         if not new_articles:
-            print("Нет новых статей — выходим.")
+            print("Нет новых статей.")
             return
 
         article = new_articles[0]
-        print(f"Обрабатываем: {article['title'][:80]}")
+        print(f"Статья: {article['title'][:80]}")
 
         post_text, image_prompt = generate_content(article)
-        print(f"Image prompt: {image_prompt}")
+        print(f"Пост: {len(post_text)} символов")
+        print(f"Image: {image_prompt[:60]}")
 
         image_url = build_image_url(image_prompt)
-        print(f"Image URL готов")
-
-        msg_id = send_for_approval(post_text, image_url, article["id"])
+        msg_id    = send_for_approval(post_text, image_url, article["id"])
         print(f"✓ Отправлено модератору (msg_id={msg_id})")
 
         pending[article["id"]] = {
@@ -320,11 +332,10 @@ def main():
 
         save_json(PENDING_FILE, pending)
         save_json(POSTED_FILE,  posted_ids)
-        print("✓ Данные сохранены")
-        print("✓ ГОТОВО\n")
+        print("✓ Готово\n")
 
     except Exception as e:
-        msg = f"❌ Ошибка генерации поста:\n{type(e).__name__}: {e}"
+        msg = f"❌ Ошибка:\n{type(e).__name__}: {e}"
         print(msg)
         notify_moderator(msg)
         raise
