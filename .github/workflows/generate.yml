@@ -38,6 +38,12 @@ jobs:
           TELEGRAM_CHANNEL_ID:   ${{ secrets.TELEGRAM_CHANNEL_ID }}
           GH_MODELS_TOKEN:       ${{ secrets.GH_MODELS_TOKEN }}
 
+          # ─── Наблюдаемость (опционально) ───────────────────────
+          # Если SENTRY_DSN не задан в Secrets — Sentry просто не включится.
+          SENTRY_DSN:            ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT:    production
+          LOG_LEVEL:             INFO
+
           # ─── Конфиг канала (можно переопределить через vars) ───
           CHANNEL_TOPIC:    ${{ vars.CHANNEL_TOPIC    || 'Нейро-новости' }}
           CHANNEL_NICHE:    ${{ vars.CHANNEL_NICHE    || 'искусственный интеллект и нейросети' }}

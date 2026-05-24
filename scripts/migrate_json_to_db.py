@@ -28,6 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from bot.db import init_db, session_scope  # noqa: E402
+from bot.logging_setup import get_logger, setup_logging  # noqa: E402
 from bot.models import (  # noqa: E402
     POST_STATUS_PENDING,
     Article,
@@ -39,6 +40,8 @@ from bot.storage import (  # noqa: E402
     save_article,
     set_state,
 )
+
+log = get_logger("migrate")
 
 
 PENDING_FILE = PROJECT_ROOT / "data" / "pending.json"
@@ -160,30 +163,27 @@ def migrate_offset(session) -> bool:
 
 
 def main() -> None:
-    print("=" * 60)
-    print("Миграция JSON → SQLite")
-    print("=" * 60)
+    setup_logging()
+    log.info("=== Миграция JSON → SQLite ===")
 
     init_db()
-    print("✅ Таблицы созданы (или уже существовали)")
+    log.info("Таблицы созданы (или уже существовали)")
 
     with session_scope() as session:
         channel = ensure_channel(session)
         session.flush()
-        print(f"✅ Канал: {channel.topic} (id={channel.id}, slug={channel.slug})")
+        log.info("Канал: %s (id=%d, slug=%s)", channel.topic, channel.id, channel.slug)
 
         n_posted = migrate_posted_ids(session, channel.id)
-        print(f"✅ Перенесено posted_ids: {n_posted}")
+        log.info("Перенесено posted_ids: %d", n_posted)
 
         n_pending = migrate_pending(session, channel.id)
-        print(f"✅ Перенесено pending-постов: {n_pending}")
+        log.info("Перенесено pending-постов: %d", n_pending)
 
         ok = migrate_offset(session)
-        print(f"✅ Telegram offset перенесён: {ok}")
+        log.info("Telegram offset перенесён: %s", ok)
 
-    print("=" * 60)
-    print("Готово. Старые JSON-файлы НЕ удалены — оставлены как бэкап.")
-    print("=" * 60)
+    log.info("Готово. Старые JSON-файлы НЕ удалены — оставлены как бэкап.")
 
 
 if __name__ == "__main__":

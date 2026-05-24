@@ -64,6 +64,15 @@ class Settings(BaseSettings):
         description="URL подключения к БД. По умолчанию — SQLite-файл в data/.",
     )
 
+    # ─── Наблюдаемость (опционально) ─────────────────────────────────
+    sentry_dsn: str = Field(
+        "",
+        alias="SENTRY_DSN",
+        description="DSN для Sentry. Пустая строка = Sentry выключен.",
+    )
+    sentry_environment: str = Field("production", alias="SENTRY_ENVIRONMENT")
+    log_level: str = Field("INFO", alias="LOG_LEVEL")
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

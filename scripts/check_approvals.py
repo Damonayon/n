@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
+from bot.logging_setup import get_logger, setup_logging  # noqa: E402
 from bot.models import Post  # noqa: E402
 from bot.storage import (  # noqa: E402
     ensure_channel,
@@ -30,6 +31,7 @@ from bot.storage import (  # noqa: E402
 
 
 settings = get_settings()
+log = get_logger("check_approvals")
 
 
 # ─── Telegram-обёртки ────────────────────────────────────────────────────────
@@ -79,7 +81,7 @@ def publish_to_channel(post_text: str, image_url: str | None) -> bool:
         )
         if result.get("ok"):
             return True
-        print(f"Фото не отправилось: {result.get('description')}")
+        log.warning("Фото не отправилось: %s", result.get("description"))
 
     if image_url:
         tg("sendPhoto", {"chat_id": settings.telegram_channel_id, "photo": image_url})
@@ -116,10 +118,9 @@ def remove_buttons(msg_id: int, status_label: str) -> None:
 
 
 def main() -> None:
-    print(
-        f"\nПроверка одобрений [{settings.channel_topic}] — "
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    )
+    setup_logging()
+    log.info("=== Проверка одобрений [%s] — %s ===",
+             settings.channel_topic, datetime.now().strftime("%Y-%m-%d %H:%M"))
     init_db()
 
     try:
@@ -131,7 +132,7 @@ def main() -> None:
 
         offset = int(offset_raw) if offset_raw is not None else None
         updates = get_updates(offset)
-        print(f"Обновлений: {len(updates)}")
+        log.info("Обновлений: %d", len(updates))
 
         new_offset = offset
 
@@ -156,15 +157,15 @@ def main() -> None:
             with session_scope() as session:
                 set_state(session, "tg_offset", str(new_offset))
 
-        print("Готово\n")
+        log.info("Готово")
 
     except Exception as exc:
-        msg = (
-            f"❌ Ошибка check_approvals [{settings.channel_topic}]:\n"
+        log.exception("Сбой check_approvals [%s]: %s",
+                      settings.channel_topic, type(exc).__name__)
+        notify_moderator(
+            f"❌ Сбой check_approvals [{settings.channel_topic}]: "
             f"{type(exc).__name__}: {exc}"
         )
-        print(msg)
-        notify_moderator(msg)
         raise
 
 
@@ -193,10 +194,10 @@ def _handle_approve(channel_id: int, art_hash: str, cq_id: str, msg_id: int) -> 
     if success:
         answer_callback(cq_id, "✅ Опубликовано!")
         remove_buttons(msg_id, f"✅ ОПУБЛИКОВАНО [{settings.channel_topic}]")
-        print(f"✅ Опубликован: post_id={post_id}")
+        log.info("Опубликован post_id=%d", post_id)
     else:
         answer_callback(cq_id, "❌ Ошибка публикации")
-        notify_moderator(f"❌ Не удалось опубликовать [{settings.channel_topic}]")
+        log.error("Не удалось опубликовать post_id=%d", post_id)
 
 
 def _handle_reject(channel_id: int, art_hash: str, cq_id: str, msg_id: int) -> None:
@@ -210,7 +211,7 @@ def _handle_reject(channel_id: int, art_hash: str, cq_id: str, msg_id: int) -> N
 
     answer_callback(cq_id, "❌ Отклонено")
     remove_buttons(msg_id, f"❌ ОТКЛОНЕНО [{settings.channel_topic}]")
-    print(f"❌ Отклонён: post_id={post_id}")
+    log.info("Отклонён post_id=%d", post_id)
 
 
 if __name__ == "__main__":

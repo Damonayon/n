@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import json
-import os
 import random
 import re
 import sys
@@ -35,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
+from bot.logging_setup import get_logger, setup_logging  # noqa: E402
 from bot.storage import (  # noqa: E402
     article_hash,
     create_pending_post,
@@ -56,6 +56,7 @@ MAX_CANDIDATES_TO_FILTER = 10
 
 # ─── Конфигурация ────────────────────────────────────────────────────────────
 settings = get_settings()
+log = get_logger("generate_post")
 
 
 # ─── Утилиты HTTP ────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ def notify_moderator(text: str) -> None:
             timeout=10,
         )
     except requests.RequestException as exc:
-        print(f"  notify_moderator failed: {exc}")
+        log.warning("notify_moderator failed: %s", exc)
 
 
 # ─── Загрузка статей из RSS ──────────────────────────────────────────────────
@@ -96,8 +97,8 @@ def fetch_articles() -> list[dict]:
                     }
                 )
         except Exception as exc:
-            print(f"Ошибка RSS {feed_url}: {exc}")
-    print(f"Всего статей из RSS: {len(articles)}")
+            log.warning("RSS-ошибка %s: %s", feed_url, exc)
+    log.info("Всего статей из RSS: %d", len(articles))
     return articles
 
 
@@ -311,16 +312,16 @@ def call_ai(
                     return content, model
                 if resp.status_code == 429:
                     wait = 20 * (attempt + 1)
-                    print(f"  Rate limit {model}, жду {wait}с...")
+                    log.warning("Rate limit %s, жду %dс", model, wait)
                     time.sleep(wait)
                     continue
                 if resp.status_code in (400, 404):
-                    print(f"  {model} недоступна → пробую следующую")
+                    log.warning("%s недоступна (HTTP %d), пробую следующую", model, resp.status_code)
                     break
-                print(f"  {model} ошибка {resp.status_code}: {resp.text[:150]}")
+                log.warning("%s ошибка %d: %s", model, resp.status_code, resp.text[:150])
                 time.sleep(5)
             except requests.RequestException as exc:
-                print(f"  Сетевое исключение: {exc}")
+                log.warning("Сетевое исключение при вызове %s: %s", model, exc)
                 time.sleep(5)
     raise RuntimeError("Все модели недоступны")
 
@@ -348,7 +349,7 @@ def filter_article(article: dict) -> Tuple[str, str]:
         data = _extract_json(raw)
         return data.get("quality", "LOW"), data.get("reason", "")
     except (json.JSONDecodeError, ValueError, KeyError) as exc:
-        print(f"  Ошибка фильтра: {exc} — считаем MEDIUM")
+        log.warning("Ошибка фильтра, считаем MEDIUM: %s", exc)
         return "MEDIUM", "ошибка парсинга"
 
 
@@ -424,7 +425,7 @@ def generate_post_content(article: dict, rubric: str) -> Tuple[str, str, str]:
             post_text = ensure_correct_link(post_text, article["url"])
             return post_text, image_prompt, model_used
         except (json.JSONDecodeError, ValueError) as exc:
-            print(f"  Попытка {attempt + 1}: ошибка парсинга — {exc}")
+            log.warning("Попытка %d: ошибка парсинга — %s", attempt + 1, exc)
             last_err = exc
             time.sleep(3)
     raise RuntimeError(f"Не удалось сгенерировать корректный пост: {last_err}")
@@ -471,7 +472,7 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
     ).json()
 
     if not result.get("ok"):
-        print(f"Фото не загрузилось ({result.get('description')}), отправляю текстом")
+        log.warning("Фото не загрузилось (%s), отправляю текстом", result.get("description"))
         result = requests.post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json={
@@ -492,9 +493,9 @@ def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> int:
 
 
 def main() -> None:
-    print(f"\n{'=' * 60}")
-    print(f"Канал: «{settings.channel_topic}»  |  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'=' * 60}")
+    setup_logging()
+    log.info("=== Канал «%s» — %s ===", settings.channel_topic,
+             datetime.now().strftime("%Y-%m-%d %H:%M"))
 
     init_db()
 
@@ -508,21 +509,21 @@ def main() -> None:
             known = known_article_hashes(session, channel_id)
 
         new_articles = [a for a in articles if a["id"] not in known]
-        print(f"Новых статей в RSS: {len(new_articles)}")
+        log.info("Новых статей в RSS: %d", len(new_articles))
 
         if not new_articles:
-            print("Нет новых статей.")
+            log.info("Нет новых статей.")
             return
 
-        # Фильтрация качества (одна короткая транзакция на каждое кандидат)
-        print(f"\nФильтрация качества (top-{min(MAX_CANDIDATES_TO_FILTER, len(new_articles))} кандидатов):")
+        log.info("Фильтрация качества top-%d кандидатов:",
+                 min(MAX_CANDIDATES_TO_FILTER, len(new_articles)))
         best_article: dict | None = None
         first_medium: dict | None = None
 
         for i, article in enumerate(new_articles[:MAX_CANDIDATES_TO_FILTER]):
-            print(f"\n[{i + 1}] {article['title'][:70]}")
+            log.info("[%d] %s", i + 1, article["title"][:70])
             quality, reason = filter_article(article)
-            print(f"  → {quality}: {reason}")
+            log.info("  → %s: %s", quality, reason)
 
             # Сохраняем статью в БД (даже LOW — чтобы не оценивать повторно)
             with session_scope() as session:
@@ -539,7 +540,7 @@ def main() -> None:
 
             if quality == "HIGH":
                 best_article = article
-                print("  ✅ ВЫБРАНА КАК HIGH")
+                log.info("✅ ВЫБРАНА КАК HIGH")
                 break
             if quality == "MEDIUM" and first_medium is None:
                 first_medium = article
@@ -548,23 +549,21 @@ def main() -> None:
             best_article = first_medium
 
         if best_article is None:
-            print("\n⚠️ Не нашли подходящих статей в этом цикле.")
+            log.info("Не нашли подходящих статей в этом цикле.")
             return
 
-        print(f"\n{'─' * 60}")
-        print(f"📝 Генерируем пост для: {best_article['title']}")
-        print(f"{'─' * 60}")
+        log.info("📝 Генерируем пост для: %s", best_article["title"])
 
         rubric = detect_rubric(best_article)
-        print(f"  Рубрика: {rubric}")
+        log.info("Рубрика: %s", rubric)
 
         post_text, image_prompt, model_used = generate_post_content(best_article, rubric)
-        print(f"  Пост готов: {len(post_text)} символов (модель: {model_used})")
-        print(f"  Image: {image_prompt[:60]}")
+        log.info("Пост готов: %d символов (модель: %s)", len(post_text), model_used)
+        log.info("Image: %s", image_prompt[:80])
 
         image_url = build_image_url(image_prompt)
         msg_id = send_for_approval(post_text, image_url, best_article["id"])
-        print(f"\n✅ Отправлено модератору (msg_id={msg_id})")
+        log.info("✅ Отправлено модератору (msg_id=%d)", msg_id)
 
         # Финальная транзакция: сохраняем рубрику и создаём pending-Post
         with session_scope() as session:
@@ -588,12 +587,15 @@ def main() -> None:
                 model_used=model_used,
             )
 
-        print("✅ ГОТОВО\n")
+        log.info("✅ ГОТОВО")
 
     except Exception as exc:
-        msg = f"❌ Ошибка [{settings.channel_topic}]:\n{type(exc).__name__}: {exc}"
-        print(msg)
-        notify_moderator(msg)
+        # log.exception сам прицепит traceback и сработает Telegram-алерт + Sentry
+        log.exception("Сбой пайплайна [%s]: %s",
+                      settings.channel_topic, type(exc).__name__)
+        notify_moderator(
+            f"❌ Сбой [{settings.channel_topic}]: {type(exc).__name__}: {exc}"
+        )
         raise
 
 

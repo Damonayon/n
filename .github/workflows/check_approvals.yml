@@ -35,9 +35,13 @@ jobs:
           TELEGRAM_MODERATOR_ID: ${{ secrets.TELEGRAM_MODERATOR_ID }}
           TELEGRAM_CHANNEL_ID:   ${{ secrets.TELEGRAM_CHANNEL_ID }}
           # GH_MODELS_TOKEN не нужен для публикации, но требуется на старте
-          # (pydantic-settings валидирует все поля). Передаём пустую строку — это допустимо,
-          # т.к. фактически он не вызывается в этом скрипте.
+          # (pydantic-settings валидирует все поля). В этом скрипте он не вызывается.
           GH_MODELS_TOKEN:       ${{ secrets.GH_MODELS_TOKEN }}
+
+          # ─── Наблюдаемость (опционально) ───────────────────────
+          SENTRY_DSN:            ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT:    production
+          LOG_LEVEL:             INFO
 
           CHANNEL_TOPIC:    ${{ vars.CHANNEL_TOPIC    || 'Нейро-новости' }}
           CHANNEL_NICHE:    ${{ vars.CHANNEL_NICHE    || 'искусственный интеллект и нейросети' }}
