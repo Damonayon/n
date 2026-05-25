@@ -121,181 +121,17 @@ def fetch_articles() -> list[dict[str, Any]]:
     return articles
 
 
-# ─── Промпты ─────────────────────────────────────────────────────────────────
-
-
-FILTER_SYSTEM = f"""Ты — главный редактор Telegram-канала «{settings.channel_topic}» про {settings.channel_niche}.
-Аудитория: {settings.channel_audience}.
-Твоя задача — оценивать пригодность статей для публикации."""
-
-FILTER_PROMPT = """Оцени, подходит ли эта статья для публикации в канале.
-
-ЗАГОЛОВОК: {title}
-СОДЕРЖАНИЕ: {summary}
-
-Подходящие статьи (HIGH):
-✅ Новости о релизах, запусках, продуктах
-✅ Скандалы, увольнения, корпоративные события
-✅ Прорывы, рекорды, конкретные достижения с цифрами
-✅ Новые инструменты, которые читатель может попробовать сегодня
-✅ Кейсы применения с конкретным результатом
-
-Подходящие, но не идеально (MEDIUM):
-⚠️ Аналитика рынка, тренды, прогнозы
-⚠️ Интервью с известными людьми
-⚠️ Сравнения продуктов
-
-НЕ подходят (LOW):
-❌ Учебники, туториалы, "как сделать X"
-❌ Философские рассуждения о будущем
-❌ Чисто академические/научные статьи
-❌ Личные блоги ("как я сделал Y")
-❌ Реклама услуг и продуктов
-
-Верни СТРОГО JSON:
-{{"quality": "HIGH" | "MEDIUM" | "LOW", "reason": "краткое обоснование на русском"}}"""
-
-
-GENERATOR_SYSTEM = f"""Ты — главный редактор топового Telegram-канала «{settings.channel_topic}».
-Тема канала: {settings.channel_niche}.
-Аудитория: {settings.channel_audience}.
-Язык: {settings.channel_lang}.
-
-Ты пишешь как лучшие SMM-специалисты России: цепляюще, конкретно, с цифрами и пользой.
-Каждый пост должен заставить читателя остановиться, прочитать до конца и поделиться.
-
-Отвечай ТОЛЬКО валидным JSON."""
-
-
-GENERATOR_PROMPT = """Напиши идеальный Telegram-пост на основе этой новости.
-
-НОВОСТЬ:
-Заголовок: {title}
-Содержание: {summary}
-Ссылка: {url}
-
-Тип контента: {rubric}
-
-═══════════════════════════════════════════════
-ЭТАЛОННЫЕ ПРИМЕРЫ ВИРУСНЫХ ПОСТОВ (учись на них!)
-═══════════════════════════════════════════════
-
-ПРИМЕР 1 (новый инструмент):
-─────────────────────────────
-🚨 Новый инструмент собрал <b>50 000 пользователей</b> за 48 часов. И он бесплатный.
-
-Vercel запустил v0 — нейросеть, которая по описанию рисует готовый интерфейс сайта. Пишешь «дашборд для продаж с графиками» — получаешь рабочий React-компонент за 30 секунд.
-
-Если ты <b>предприниматель</b> — это значит, что MVP теперь делается за вечер, а не за неделю.
-Если ты <b>дизайнер</b> — пора учиться промптингу, иначе твою работу заберут.
-Если ты <b>разработчик</b> — это твой новый Stack Overflow на стероидах.
-
-Готовы ли мы к миру, где код пишет ИИ, а человек только редактирует? 🤔
-
-#ИИ #нейросети #инструменты
-
-<a href="URL">📖 Читать полностью</a>
-
-─────────────────────────────
-
-ПРИМЕР 2 (срочная новость / скандал):
-─────────────────────────────
-🔻 OpenAI <b>уволил 300 контент-модераторов</b>. Их работу теперь делает GPT-4.
-
-Компания первой в индустрии полностью заменила людей-модераторов на свою же модель. По данным Bloomberg, это сэкономит OpenAI $12 млн в год.
-
-Если ты работаешь в найме на рутинных задачах — посмотри на это <b>дважды</b>. Это не будущее. Это уже настоящее.
-
-А ты бы доверил ИИ модерировать твой контент? 💭
-
-#ИИ #новости #будущее
-
-<a href="URL">📖 Читать полностью</a>
-
-─────────────────────────────
-
-ПРИМЕР 3 (цифра дня / исследование):
-─────────────────────────────
-📊 <b>73%</b> сотрудников втайне используют ChatGPT на работе. А босс не в курсе.
-
-Стэнфорд опросил 4500 офисных работников. Выводы шокируют:
-• 73% используют ИИ ежедневно
-• 84% делают это без ведома руководства
-• 91% увеличили продуктивность минимум на четверть
-
-«Теневая революция» уже происходит. Только в одной отдельно взятой переговорке.
-
-Ты в этих 73%? 🤫
-
-#ИИ #работа #исследование
-
-<a href="URL">📖 Читать полностью</a>
-
-═══════════════════════════════════════════════
-ТРЕБОВАНИЯ К ТВОЕМУ ПОСТУ
-═══════════════════════════════════════════════
-
-Верни ТОЛЬКО JSON:
-{{"post": "текст поста в HTML", "image_prompt": "english visual prompt"}}
-
-ОБЯЗАТЕЛЬНАЯ СТРУКТУРА:
-
-[Строка 1] КРЮЧОК
-Обязательно: либо цифра, либо неожиданный факт, либо провокация.
-Эмодзи в начале: 🚨 🔥 🔻 📊 🎯 ⚡ 🤖 🧠
-<b>Жирным</b> — ключевую цифру или слово.
-
-[пустая строка]
-
-[Строки 2-4] СУТЬ
-3-4 предложения. Конкретика: кто сделал, что, когда, какие цифры.
-Простой язык, как другу. Никаких "в данной статье говорится".
-
-[пустая строка]
-
-[Строки 5-7] ПОЛЬЗА ДЛЯ ЧИТАТЕЛЯ
-Конкретные сегменты: "Если ты <b>фрилансер</b> — ...", "Для <b>малого бизнеса</b> — ..."
-Минимум 2 сегмента. Каждый — с реальной пользой/угрозой.
-
-[пустая строка]
-
-[Строка 8] ВОПРОС/ТЕЗИС
-Острый вопрос для комментариев. Эмодзи в конце: 🤔 💭 👀 🔥
-
-[пустая строка]
-
-[Строка 9] #ИИ #нейросети #тематический
-
-[пустая строка]
-
-[Строка 10] <a href="{url}">📖 Читать полностью</a>
-⚠️ ВАЖНО: вставь именно эту ссылку дословно с правильным URL!
-
-═══════════════════════════════════════════════
-ЖЁСТКИЕ ПРАВИЛА
-═══════════════════════════════════════════════
-
-✅ Цифры: минимум одна цифра в посте (лучше в крючке)
-✅ <b>Жирный</b>: 3-5 раз для ключевых слов
-✅ Эмодзи: 5-8 штук, уместно, не подряд
-✅ Длина: 180-260 слов СТРОГО
-✅ Язык: только {lang}
-✅ Сегменты пользы: минимум 2
-
-❌ Запрещено: «революция», «прорыв», «невероятный», «уникальный», «потрясающий»
-❌ Запрещено: вода типа «в данной статье», «как мы знаем», «в современном мире»
-❌ Запрещено: общие фразы без цифр и конкретики
-
-═══════════════════════════════════════════════
-IMAGE PROMPT (английский, до 130 символов)
-═══════════════════════════════════════════════
-
-Стиль: cinematic concept art, dramatic lighting, ultra detailed, 8k
-Запрещено: humans, faces, people, text, letters, words
-
-Пример: "glowing AI processor dark space electric blue neon circuits cinematic 8k ultra detailed"
-
-Верни ТОЛЬКО JSON."""
+# ─── Промпты — теперь через bot.prompts (T2.4 — Promptops) ─────────────────
+#
+# Все промпты хранятся в БД (таблица prompts) с версиями. Источник правды —
+# .md-файлы в каталоге prompts/, синхронизируются через
+# `python scripts/prompts_admin.py seed` или auto-bootstrap при первом запуске.
+#
+# Few-shot эталоны (таблица few_shot_examples, источник prompts/few_shot/*.md)
+# выбираются случайно с приоритетом по рубрике и quality_score, и подмешиваются
+# в шаблон GENERATOR через токен {few_shot_examples}.
+#
+# Для отката версии: scripts/prompts_admin.py rollback <kind>.
 
 
 # ─── JSON-extract из ответа модели ───────────────────────────────────────────
@@ -316,9 +152,24 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
 
 def filter_article(article: dict[str, Any]) -> tuple[str, str]:
+    """Оценивает статью HIGH/MEDIUM/LOW через дешёвую модель.
+
+    Промпт берётся из активной версии filter (T2.4 — Promptops). Переменные
+    {channel_topic}, {channel_niche}, {channel_audience} подставляются здесь —
+    они не входят в `article` dict, поэтому format(**article) не сработал бы.
+    """
+    from bot.prompts import get_active_prompt
+
+    prompt = get_active_prompt("filter")
+    system_text = prompt.system.format(
+        channel_topic=settings.channel_topic,
+        channel_niche=settings.channel_niche,
+        channel_audience=settings.channel_audience,
+    )
+    user_text = prompt.user_template.format(**article)
     messages = [
-        {"role": "system", "content": FILTER_SYSTEM},
-        {"role": "user", "content": FILTER_PROMPT.format(**article)},
+        {"role": "system", "content": system_text},
+        {"role": "user", "content": user_text},
     ]
     try:
         result = call_llm(
@@ -408,6 +259,8 @@ class GeneratedPost:
     critic_scores_json: str | None
     critic_feedback: str | None
     critic_preview: str | None
+    prompt_version_id: int | None  # T2.4: ссылка на использованную версию промпта
+    few_shot_slugs_json: str | None  # T2.4: JSON-список slug'ов эталонов
 
 
 def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost:
@@ -428,13 +281,37 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost
     """
     from bot.critic import MAX_REGENERATIONS, CriticResult, critique_post
     from bot.post_validator import validate_post
+    from bot.prompts import (
+        format_few_shot_for_prompt,
+        get_active_prompt,
+        sample_few_shot,
+    )
 
-    base_prompt = GENERATOR_PROMPT.format(
+    # T2.4: грузим активный промпт + рандомные few-shot эталоны
+    gen_prompt = get_active_prompt("generator")
+    examples = sample_few_shot(rubric=rubric, count=3, language=settings.channel_lang)
+    few_shot_block = format_few_shot_for_prompt(examples)
+    few_shot_slugs = [e.slug for e in examples]
+    few_shot_slugs_json = json.dumps(few_shot_slugs, ensure_ascii=False)
+    log.info(
+        "Промпт generator=%s, few-shot=%s",
+        gen_prompt.version,
+        few_shot_slugs or "пусто",
+    )
+
+    system_text = gen_prompt.system.format(
+        channel_topic=settings.channel_topic,
+        channel_niche=settings.channel_niche,
+        channel_audience=settings.channel_audience,
+        channel_lang=settings.channel_lang,
+    )
+    base_prompt = gen_prompt.user_template.format(
         title=article["title"],
         summary=article["summary"],
         url=article["url"],
         rubric=rubric,
         lang=settings.channel_lang,
+        few_shot_examples=few_shot_block,
     )
 
     last_err: Exception | None = None
@@ -459,7 +336,7 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost
                     f"{critic_feedback_for_prompt}"
                 )
             messages = [
-                {"role": "system", "content": GENERATOR_SYSTEM},
+                {"role": "system", "content": system_text},
                 {"role": "user", "content": user_msg},
             ]
             llm = call_llm(
@@ -501,6 +378,8 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost
                 critic_scores_json=c_result.scores_json(),
                 critic_feedback=c_result.feedback or c_result.rejection_reason or None,
                 critic_preview=c_result.short_preview(),
+                prompt_version_id=gen_prompt.id,
+                few_shot_slugs_json=few_shot_slugs_json,
             )
 
             # Запоминаем лучший вариант для fallback
@@ -753,6 +632,8 @@ def main() -> None:
                 quality_score=result.quality_score,
                 critic_scores_json=result.critic_scores_json,
                 critic_feedback=result.critic_feedback,
+                prompt_version_id=result.prompt_version_id,
+                few_shot_slugs_json=result.few_shot_slugs_json,
             )
 
         log.info("✅ ГОТОВО")

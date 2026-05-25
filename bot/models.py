@@ -145,6 +145,10 @@ class Post(Base):
     # Feedback критика. Сохраняется даже при approve — помогает находить системные
     # слабости («регулярно низкий hook» → нужна правка GENERATOR_PROMPT).
     critic_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Какие few-shot примеры были подмешаны в промпт генератора этого поста.
+    # JSON-список slug'ов (например ["launch_001", "scandal_001"]). Нужно для
+    # ретро-анализа: какие эталоны коррелируют с высокими/низкими оценками критика.
+    few_shot_slugs_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
@@ -184,13 +188,20 @@ class Metric(Base):
 
 
 class Prompt(Base):
-    """Версионированный промпт. Заполняется в T2.5."""
+    """Версионированный промпт (T2.4 — Promptops).
+
+    Каждый kind (filter/generator/critic_system/critic_user) может иметь
+    несколько версий. Активна — та, у которой is_active=True. Откат:
+    см. scripts/prompts_admin.py.
+    """
 
     __tablename__ = "prompts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(
-        String(32), index=True, comment="filter / generator / critic / rubric"
+        String(32),
+        index=True,
+        comment="filter / generator / critic_system / critic_user",
     )
     version: Mapped[str] = mapped_column(String(32))
     system_prompt: Mapped[str] = mapped_column(Text)
@@ -200,6 +211,38 @@ class Prompt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (UniqueConstraint("kind", "version", name="uq_prompts_kind_version"),)
+
+
+# ─── few_shot_examples ───────────────────────────────────────────────────────
+
+
+class FewShotExample(Base):
+    """Эталонные виральные посты для few-shot обучения генератора.
+
+    Хранятся в БД с метаданными: к какой рубрике относится (или 'any'),
+    ретро-оценка качества для приоритизации, активен ли. При генерации поста
+    случайные few-shot выбираются из активного пула — это даёт стилистическое
+    разнообразие и предотвращает «застывание» одного шаблона.
+    """
+
+    __tablename__ = "few_shot_examples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    rubric: Mapped[str] = mapped_column(
+        String(64),
+        default="any",
+        index=True,
+        comment="any | 🚀 Запуск/Релиз | 🔻 Скандал | 📊 Цифра дня | ...",
+    )
+    language: Mapped[str] = mapped_column(String(32), default="русский", index=True)
+    body: Mapped[str] = mapped_column(Text)
+    quality_score: Mapped[int] = mapped_column(
+        Integer, default=9, comment="Ретроактивная экспертная оценка [1-10]"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 # ─── logs ────────────────────────────────────────────────────────────────────

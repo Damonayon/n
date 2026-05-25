@@ -181,6 +181,28 @@ def _resolve_thresholds() -> tuple[int, int]:
         return DEFAULT_QUALITY_THRESHOLD, DEFAULT_HARD_FLOOR
 
 
+def _get_critic_system() -> str:
+    """Активный critic system-промпт из БД, с fallback на встроенный CRITIC_SYSTEM."""
+    try:
+        from bot.prompts import get_active_prompt
+
+        return get_active_prompt("critic").system
+    except Exception as exc:
+        log.warning("Не удалось загрузить critic-промпт из БД, fallback: %s", exc)
+        return CRITIC_SYSTEM
+
+
+def _get_critic_template() -> str:
+    """Активный critic user-template из БД, с fallback."""
+    try:
+        from bot.prompts import get_active_prompt
+
+        return get_active_prompt("critic").user_template
+    except Exception as exc:
+        log.warning("Не удалось загрузить critic-промпт из БД, fallback: %s", exc)
+        return CRITIC_PROMPT
+
+
 def _decide_verdict(
     overall: int, scores: dict[str, int], threshold: int, hard_floor: int
 ) -> tuple[str, str]:
@@ -219,8 +241,10 @@ def critique_post(post_text: str) -> CriticResult:
     threshold, hard_floor = _resolve_thresholds()
 
     messages = [
-        {"role": "system", "content": CRITIC_SYSTEM},
-        {"role": "user", "content": CRITIC_PROMPT.format(post_text=post_text)},
+        # T2.4: критик-промпт загружается из активной версии в БД.
+        # Если БД пуста — fallback на встроенные CRITIC_SYSTEM/CRITIC_PROMPT.
+        {"role": "system", "content": _get_critic_system()},
+        {"role": "user", "content": _get_critic_template().format(post_text=post_text)},
     ]
     try:
         llm = call_llm(
