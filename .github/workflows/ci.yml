@@ -1,0 +1,74 @@
+name: 🧪 CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "data/**"
+      - "backups/**"
+      - "**/*.md"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# CI чисто read-only — не пересекается с data-write.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: 🎨 Lint (ruff + black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements.txt ruff black
+      - name: Ruff
+        run: ruff check bot scripts tests
+      - name: Black --check
+        run: black --check bot scripts tests
+
+  typecheck:
+    name: 🔍 mypy --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements.txt mypy types-requests
+      - run: mypy bot scripts
+
+  test:
+    name: ✅ pytest (с покрытием)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements.txt pytest pytest-cov
+      - name: Run tests
+        env:
+          # Тесты используют conftest.py, который задаёт фейковые env.
+          # На всякий случай дублируем — мало ли GitHub Actions
+          # экспортирует переменную с тем же именем.
+          TELEGRAM_BOT_TOKEN: "test:fake"
+          TELEGRAM_MODERATOR_ID: "544843065"
+          TELEGRAM_CHANNEL_ID: "@test"
+          GH_MODELS_TOKEN: "test-pat"
+        run: pytest tests/ -v --cov=bot --cov-report=term --cov-report=xml
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
