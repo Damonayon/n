@@ -69,6 +69,14 @@ class Settings(BaseSettings):
     sentry_environment: str = Field("production", alias="SENTRY_ENVIRONMENT")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
 
+    # ─── Quality gate (AI-критик) ────────────────────────────────────
+    # Порог одобрения по weighted overall (см. bot.critic).
+    # Понижай для liberальных каналов (новости), повышай для премиум (SMM-эталоны).
+    critic_quality_threshold: int = Field(7, alias="CRITIC_QUALITY_THRESHOLD")
+    # Hard floor: любой критерий ниже этого значения автоматически = reject,
+    # независимо от overall. Защита от «формально 8/10, но hook=3».
+    critic_hard_floor: int = Field(4, alias="CRITIC_HARD_FLOOR")
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

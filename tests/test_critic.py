@@ -10,6 +10,7 @@ from bot.critic import (
     CRITERION_WEIGHTS,
     QUALITY_THRESHOLD,
     _calculate_overall,
+    _decide_verdict,
     critique_post,
 )
 
@@ -144,3 +145,90 @@ class TestCritiquePost:
             assert result.scores["hook"] == 5  # дефолт при невалидном
             assert result.scores["specificity"] == 10  # clamp до 10
             assert result.scores["value"] == 1  # clamp до 1
+
+
+class TestHardFloor:
+    """T2.3 refinement: hard floor — любой критерий < hard_floor → reject."""
+
+    def test_high_overall_but_low_hook_rejected(self) -> None:
+        """Hard floor: если hook=3, остальное=10 (overall=8) — всё равно reject."""
+        # weighted overall: 0.25*3 + 0.75*10 = 0.75 + 7.5 = 8.25 → 8
+        scores = {
+            "hook": 3,
+            "specificity": 10,
+            "value": 10,
+            "emotion": 10,
+            "grammar": 10,
+            "originality": 10,
+        }
+        verdict, reason = _decide_verdict(overall=8, scores=scores, threshold=7, hard_floor=4)
+        assert verdict == "regenerate"
+        assert "hook" in reason
+        assert "hard floor" in reason
+
+    def test_all_above_floor_approved(self) -> None:
+        scores = dict.fromkeys(CRITERION_WEIGHTS, 7)
+        verdict, reason = _decide_verdict(overall=7, scores=scores, threshold=7, hard_floor=4)
+        assert verdict == "approve"
+        assert reason == ""
+
+    def test_overall_below_threshold_rejected(self) -> None:
+        scores = dict.fromkeys(CRITERION_WEIGHTS, 5)
+        verdict, reason = _decide_verdict(overall=5, scores=scores, threshold=7, hard_floor=4)
+        assert verdict == "regenerate"
+        assert "threshold" in reason
+
+    def test_exactly_at_floor_approved(self) -> None:
+        """floor=4 → score 4 одобряется, 3 — нет."""
+        scores = {
+            "hook": 4,
+            "specificity": 10,
+            "value": 10,
+            "emotion": 10,
+            "grammar": 10,
+            "originality": 10,
+        }
+        verdict, _ = _decide_verdict(overall=8, scores=scores, threshold=7, hard_floor=4)
+        assert verdict == "approve"
+
+
+class TestSerialization:
+    """Проверка, что scores и feedback корректно сохраняются для БД."""
+
+    def test_scores_json_roundtrip(self) -> None:
+        resp = _llm_response(
+            {
+                "hook": 9,
+                "specificity": 8,
+                "value": 7,
+                "emotion": 8,
+                "grammar": 9,
+                "originality": 6,
+                "feedback": "ok",
+            }
+        )
+        with patch("bot.critic.call_llm", return_value=resp):
+            result = critique_post("post")
+            restored = json.loads(result.scores_json())
+            assert restored["hook"] == 9
+            assert restored["originality"] == 6
+            assert len(restored) == 6
+
+    def test_short_preview_format(self) -> None:
+        resp = _llm_response(
+            {
+                "hook": 8,
+                "specificity": 7,
+                "value": 7,
+                "emotion": 7,
+                "grammar": 8,
+                "originality": 7,
+                "feedback": "",
+            }
+        )
+        with patch("bot.critic.call_llm", return_value=resp):
+            result = critique_post("post")
+            preview = result.short_preview()
+            assert "критик:" in preview
+            assert "10" in preview  # формат "X/10"
+            assert "hoo=8" in preview

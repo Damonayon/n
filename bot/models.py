@@ -135,8 +135,16 @@ class Post(Base):
     )
     model_used: Mapped[str | None] = mapped_column(String(64), nullable=True)
     quality_score: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Оценка AI-критика (для T2.6)"
+        Integer,
+        nullable=True,
+        comment="Weighted overall AI-критика [1-10]. См. bot.critic.",
     )
+    # Полная разбивка по 6 критериям — JSON {hook, specificity, value, emotion, grammar, originality}.
+    # Нужно для аналитики A/B-тестов промптов (T2.11) и retro-анализа стиля канала.
+    critic_scores_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Feedback критика. Сохраняется даже при approve — помогает находить системные
+    # слабости («регулярно низкий hook» → нужна правка GENERATOR_PROMPT).
+    critic_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True

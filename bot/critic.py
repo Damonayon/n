@@ -34,15 +34,22 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.ai import ModelTier, call_llm
+from bot.config import get_settings
 from bot.logging_setup import get_logger
 
 log = get_logger("bot.critic")
 
-# Порог одобрения (по weighted overall, не по тому, что сказала модель).
-QUALITY_THRESHOLD = 7
+# Дефолтные значения. Реальные значения берутся из Settings (см. bot.config).
+# Эти константы используются только если бот.config недоступен (тесты юнитов).
+DEFAULT_QUALITY_THRESHOLD = 7
+DEFAULT_HARD_FLOOR = 4
 
 # Сколько раз повторно генерировать пост, если критик отклонил.
 MAX_REGENERATIONS = 2
+
+# Обратная совместимость: импорт `from bot.critic import QUALITY_THRESHOLD`
+# (читается из настроек лениво, через property — см. _threshold ниже).
+QUALITY_THRESHOLD = DEFAULT_QUALITY_THRESHOLD
 
 # Веса критериев. См. блок-комментарий выше — основано на SMM-исследованиях.
 CRITERION_WEIGHTS: dict[str, float] = {
@@ -115,18 +122,34 @@ CRITIC_PROMPT = """Оцени пост по 6 критериям (шкала 1-1
 class CriticResult:
     overall: int  # weighted score (после нашего пересчёта)
     scores: dict[str, int] = field(default_factory=dict)
-    verdict: str = "regenerate"  # approve | regenerate (выводится из overall)
+    verdict: str = "regenerate"  # approve | regenerate (выводится из overall + hard floor)
     feedback: str = ""
-    raw: dict[str, Any] = field(default_factory=dict)  # сырой ответ модели (для логов/БД)
+    rejection_reason: str = ""  # причина отклонения (для логов/БД)
 
     @property
     def approved(self) -> bool:
-        return self.verdict == "approve" and self.overall >= QUALITY_THRESHOLD
+        return self.verdict == "approve"
+
+    @property
+    def min_score(self) -> int:
+        """Минимальный балл по любому критерию — для hard floor проверки."""
+        return min(self.scores.values()) if self.scores else 0
+
+    def scores_json(self) -> str:
+        """Сериализация per-criterion scores для сохранения в БД."""
+        return json.dumps(self.scores, ensure_ascii=False, sort_keys=True)
 
     def summary(self) -> str:
         if self.approved:
             return f"✅ overall={self.overall} ({self._fmt_scores()})"
-        return f"❌ overall={self.overall} ({self._fmt_scores()}): {(self.feedback or '')[:120]}"
+        reason = self.rejection_reason or (self.feedback or "")[:120]
+        return f"❌ overall={self.overall} ({self._fmt_scores()}): {reason}"
+
+    def short_preview(self) -> str:
+        """Однострочная сводка для caption-превью модератора."""
+        return f"критик: {self.overall}/10 · " + " ".join(
+            f"{k[:3]}={v}" for k, v in self.scores.items()
+        )
 
     def _fmt_scores(self) -> str:
         return " ".join(f"{k[:3]}={v}" for k, v in self.scores.items())
@@ -149,12 +172,52 @@ def _calculate_overall(scores: dict[str, int]) -> int:
     return max(1, min(10, round(weighted)))
 
 
+def _resolve_thresholds() -> tuple[int, int]:
+    """Возвращает (quality_threshold, hard_floor) из Settings, с дефолтами на случай ошибки."""
+    try:
+        s = get_settings()
+        return s.critic_quality_threshold, s.critic_hard_floor
+    except Exception:
+        return DEFAULT_QUALITY_THRESHOLD, DEFAULT_HARD_FLOOR
+
+
+def _decide_verdict(
+    overall: int, scores: dict[str, int], threshold: int, hard_floor: int
+) -> tuple[str, str]:
+    """Выносит verdict с учётом hard floor.
+
+    Hard floor: даже если weighted overall достаточный, любой критерий
+    ниже hard_floor → reject. Защита от ситуации «hook=3, остальное=10 → overall=8».
+    Это критично для SMM: пост с плохим hook не цепляет, никакая средняя оценка
+    не компенсирует.
+
+    Возвращает (verdict, rejection_reason).
+    """
+    if scores:
+        worst_criterion, worst_score = min(scores.items(), key=lambda kv: kv[1])
+        if worst_score < hard_floor:
+            return (
+                "regenerate",
+                f"hard floor: {worst_criterion}={worst_score} (< {hard_floor})",
+            )
+    if overall < threshold:
+        return "regenerate", f"overall {overall} < threshold {threshold}"
+    return "approve", ""
+
+
 def critique_post(post_text: str) -> CriticResult:
     """Оценивает пост через AI-критика.
 
-    Fail-safe: при любом сбое возвращает нейтральный verdict=approve с overall=7,
+    Двухуровневый контроль:
+      1. Weighted overall ≥ quality_threshold (из Settings, по умолчанию 7).
+      2. Hard floor: каждый из 6 критериев ≥ hard_floor (из Settings, по умолчанию 4).
+         Защита от «hook=3, overall=8» — формально проходит, реально не работает.
+
+    Fail-safe: при любом сбое возвращает нейтральный verdict=approve с overall=threshold,
     чтобы не блокировать публикацию из-за проблемы в самом критике.
     """
+    threshold, hard_floor = _resolve_thresholds()
+
     messages = [
         {"role": "system", "content": CRITIC_SYSTEM},
         {"role": "user", "content": CRITIC_PROMPT.format(post_text=post_text)},
@@ -168,7 +231,7 @@ def critique_post(post_text: str) -> CriticResult:
             json_mode=True,
         )
         data = _extract_json(llm.content)
-        scores = {}
+        scores: dict[str, int] = {}
         for k in ("hook", "specificity", "value", "emotion", "grammar", "originality"):
             if k not in data:
                 scores[k] = 5  # модель пропустила поле — нейтральное значение
@@ -179,21 +242,21 @@ def critique_post(post_text: str) -> CriticResult:
                 scores[k] = 5  # значение нечисловое — нейтральное
 
         overall = _calculate_overall(scores)
-        verdict = "approve" if overall >= QUALITY_THRESHOLD else "regenerate"
+        verdict, rejection_reason = _decide_verdict(overall, scores, threshold, hard_floor)
         feedback = str(data.get("feedback", "") or "")
         return CriticResult(
             overall=overall,
             scores=scores,
             verdict=verdict,
             feedback=feedback,
-            raw=data,
+            rejection_reason=rejection_reason,
         )
     except Exception as exc:
         # Сбой критика не должен блокировать публикацию.
         log.warning("AI-критик сбойнул (пропускаю пост): %s", exc)
         return CriticResult(
-            overall=QUALITY_THRESHOLD,
-            scores=dict.fromkeys(CRITERION_WEIGHTS, QUALITY_THRESHOLD),
+            overall=threshold,
+            scores=dict.fromkeys(CRITERION_WEIGHTS, threshold),
             verdict="approve",
             feedback="critic unavailable",
         )

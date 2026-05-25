@@ -139,8 +139,14 @@ def create_pending_post(
     image_file_id: str | None = None,
     model_used: str | None = None,
     quality_score: int | None = None,
+    critic_scores_json: str | None = None,
+    critic_feedback: str | None = None,
 ) -> Post:
-    """Создаёт пост в статусе pending (отправлен модератору)."""
+    """Создаёт пост в статусе pending (отправлен модератору).
+
+    critic_scores_json / critic_feedback — сериализованная разбивка AI-критика
+    по 6 критериям. Сохраняется для будущей аналитики A/B-тестов промптов (T2.11).
+    """
     post = Post(
         article_id=article.id,
         channel_id=channel_id,
@@ -151,6 +157,8 @@ def create_pending_post(
         moderator_msg_id=moderator_msg_id,
         model_used=model_used,
         quality_score=quality_score,
+        critic_scores_json=critic_scores_json,
+        critic_feedback=critic_feedback,
         status=POST_STATUS_PENDING,
     )
     session.add(post)
