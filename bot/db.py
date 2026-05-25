@@ -10,9 +10,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from bot.config import DATA_DIR, get_settings
 from bot.models import Base
-
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
@@ -40,9 +39,9 @@ def get_engine() -> Engine:
             echo=False,
             future=True,
             # Для SQLite важно: разрешаем использовать из разных потоков
-            connect_args={"check_same_thread": False}
-            if settings.db_url.startswith("sqlite:")
-            else {},
+            connect_args=(
+                {"check_same_thread": False} if settings.db_url.startswith("sqlite:") else {}
+            ),
         )
 
         # Для SQLite: включаем WAL (одновременные читатели + один писатель)
@@ -55,7 +54,7 @@ def get_engine() -> Engine:
 
 def _enable_sqlite_pragmas(engine: Engine) -> None:
     @event.listens_for(engine, "connect")
-    def _set_pragmas(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+    def _set_pragmas(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")

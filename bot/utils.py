@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-
 
 # Tracking-параметры, которые меняют URL, но не меняют контент.
 # Список консервативный — добавляем только то, что точно tracking.

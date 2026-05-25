@@ -16,7 +16,7 @@ from __future__ import annotations
 import gzip
 import shutil
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +25,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot.config import DATA_DIR  # noqa: E402
 from bot.logging_setup import get_logger, setup_logging  # noqa: E402
-
 
 BACKUPS_DIR = PROJECT_ROOT / "backups"
 DB_PATH = DATA_DIR / "bot.db"
@@ -41,7 +40,7 @@ def make_backup() -> Path:
         raise FileNotFoundError(f"БД не найдена: {DB_PATH}")
 
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     target = BACKUPS_DIR / f"{today}.db.gz"
 
     # Перезапись OK — это «снимок дня»
@@ -58,13 +57,13 @@ def cleanup_old_backups() -> int:
     if not BACKUPS_DIR.exists():
         return 0
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=BACKUP_RETENTION_DAYS)
+    cutoff = datetime.now(UTC) - timedelta(days=BACKUP_RETENTION_DAYS)
     removed = 0
     for f in BACKUPS_DIR.glob("*.db.gz"):
         try:
             # Имя файла = дата; парсим её как авторитетный источник возраста
             stem = f.name.replace(".db.gz", "")
-            d = datetime.strptime(stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            d = datetime.strptime(stem, "%Y-%m-%d").replace(tzinfo=UTC)
             if d < cutoff:
                 f.unlink()
                 removed += 1

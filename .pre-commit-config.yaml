@@ -1,0 +1,41 @@
+# pre-commit-config.yaml
+# Установка: pip install pre-commit && pre-commit install
+# При каждом `git commit` — автоматически прогоняются эти проверки.
+
+repos:
+  # ─── базовые санитайзеры ─────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]   # отсекаем случайные большие файлы (>1MB)
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # ─── форматирование Python ───────────────────────────────────────
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+
+  # ─── линт + isort через ruff ─────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # ─── гитлики (быстрая локальная проверка) ────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+# Конфиг по-умолчанию: запускать на изменённых файлах.
+default_language_version:
+  python: python3.11

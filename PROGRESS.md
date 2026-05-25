@@ -14,7 +14,7 @@
 - [x] **T1.6** — Health-check workflow (каждые 30 мин) + чистка просроченных pending ✓
 - [x] **T1.7** — Backup-стратегия + Alembic-миграции БД ✓
 - [x] **T1.8** — Защита секретов и безопасность (`gitleaks`, `SECURITY.md`) + Dependabot ✓
-- [ ] **T1.9** — Pre-commit hooks (`black`, `ruff`, `mypy`)
+- [x] **T1.9** — Pre-commit hooks (`black`, `ruff`, `mypy`) ✓
 - [ ] **T1.10** — Type hints и docstrings (mypy --strict)
 - [ ] **T1.11** — Базовые тесты pytest (покрытие ≥70%) + CLI-утилита `status`
 - [ ] **T1.12** — CI/CD pipeline (тесты при push/PR)
@@ -69,7 +69,7 @@
 
 ---
 
-**Текущая задача:** T1.9 — Pre-commit hooks
+**Текущая задача:** T1.10 — Type hints + mypy --strict
 
 **Бонусом закрыто в T1.2:** C2, C6, W1
 **Бонусом закрыто в T1.3:** C3, часть W10

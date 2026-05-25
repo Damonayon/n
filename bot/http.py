@@ -21,9 +21,10 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -36,7 +37,6 @@ from tenacity import (
 )
 
 from bot.logging_setup import get_logger
-
 
 log = get_logger("bot.http")
 
@@ -52,8 +52,8 @@ DEFAULT_BACKOFF_MAX_SEC = 30.0
 RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 # Circuit breaker
-FAILURE_THRESHOLD = 5            # после стольких подряд ошибок — открываем
-OPEN_DURATION_SEC = 300          # сколько хост остаётся "блокированным"
+FAILURE_THRESHOLD = 5  # после стольких подряд ошибок — открываем
+OPEN_DURATION_SEC = 300  # сколько хост остаётся "блокированным"
 
 
 # ─── Исключения ──────────────────────────────────────────────────────────────
@@ -164,9 +164,7 @@ class _CircuitBreaker:
             elapsed = time.monotonic() - s.opened_at
             if elapsed < self._open_duration:
                 remaining = int(self._open_duration - elapsed)
-                raise CircuitOpenError(
-                    f"Circuit open для {host}: ещё {remaining} сек блокировки"
-                )
+                raise CircuitOpenError(f"Circuit open для {host}: ещё {remaining} сек блокировки")
             # Время вышло — half-open: пробуем снова
             log.info("Circuit breaker: half-open пробую %s", host)
             s.opened_at = None
@@ -264,9 +262,7 @@ class HttpClient:
         try:
             for attempt in Retrying(
                 stop=stop_after_attempt(self._max_attempts),
-                wait=wait_exponential(
-                    multiplier=self._backoff_base, max=self._backoff_max
-                ),
+                wait=wait_exponential(multiplier=self._backoff_base, max=self._backoff_max),
                 retry=retry_if_exception(_is_retryable),
                 reraise=True,
             ):
@@ -295,7 +291,10 @@ class HttpClient:
                         return resp
         except RetryError as exc:
             # Не должно случиться при reraise=True, но на всякий
-            raise exc.last_attempt.exception()  # type: ignore[misc]
+            last_exc = exc.last_attempt.exception()
+            if last_exc is not None:
+                raise last_exc from exc
+            raise
 
         # Сюда мы не доходим — Retrying всегда либо вернёт, либо бросит
         raise RuntimeError("unreachable")  # pragma: no cover
@@ -323,15 +322,15 @@ def http_post(url: str, **kwargs: Any) -> requests.Response:
 
 
 __all__: Iterable[str] = (
-    "HttpClient",
-    "HttpError",
     "CircuitOpenError",
     "DeadlineExceededError",
+    "HttpClient",
+    "HttpError",
     "RetryableHttpStatus",
+    "clear_deadline",
+    "deadline_remaining",
     "default_client",
     "http_get",
     "http_post",
     "set_deadline",
-    "clear_deadline",
-    "deadline_remaining",
 )

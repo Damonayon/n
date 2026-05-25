@@ -26,11 +26,10 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from bot.config import get_settings
-
 
 _initialized: bool = False
 
@@ -46,8 +45,8 @@ _last_alert_at: dict[str, float] = {}
 class _CleanFormatter(logging.Formatter):
     """Краткий формат для stdout — без лишнего шума."""
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%H:%M:%S")
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")
         prefix = f"{ts} {record.levelname:7s} {record.name}"
         msg = record.getMessage()
         if record.exc_info:
@@ -62,7 +61,7 @@ class _DBLogHandler(logging.Handler):
     """Сохраняет лог в таблицу `logs`. Молча игнорирует ошибки БД,
     чтобы сбой логирования не сломал основной поток."""
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+    def emit(self, record: logging.LogRecord) -> None:
         # Логи ниже WARNING в БД не пишем — иначе таблица распухнет
         if record.levelno < logging.WARNING:
             return
@@ -104,7 +103,7 @@ class _DBLogHandler(logging.Handler):
 class _TelegramAlertHandler(logging.Handler):
     """Шлёт алерт модератору на ERROR/CRITICAL с троттлингом 10 минут на ключ."""
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+    def emit(self, record: logging.LogRecord) -> None:
         if record.levelno < logging.ERROR:
             return
         try:
@@ -158,7 +157,7 @@ def _init_sentry() -> bool:
         from sentry_sdk.integrations.logging import LoggingIntegration
 
         sentry_logging = LoggingIntegration(
-            level=logging.INFO,         # фиксируем как breadcrumbs
+            level=logging.INFO,  # фиксируем как breadcrumbs
             event_level=logging.ERROR,  # шлём как events
         )
         sentry_sdk.init(
@@ -183,11 +182,7 @@ def _detect_release() -> str | None:
     """Определяет версию релиза: пробуем переменные GitHub Actions, иначе None."""
     import os
 
-    return (
-        os.environ.get("GITHUB_SHA")
-        or os.environ.get("GIT_COMMIT")
-        or None
-    )
+    return os.environ.get("GITHUB_SHA") or os.environ.get("GIT_COMMIT") or None
 
 
 # ─── Главная точка входа ─────────────────────────────────────────────────────

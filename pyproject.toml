@@ -1,0 +1,78 @@
+# pyproject.toml — конфиг инструментов кода.
+# Используется black, ruff, mypy, pytest. Сам проект пока не пакуется в PyPI.
+
+# ─── BLACK ───────────────────────────────────────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.venv
+  | venv
+  | __pycache__
+  | migrations/versions
+)/
+'''
+
+# ─── RUFF ────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (порядок импортов)
+    "UP",   # pyupgrade (модернизация синтаксиса)
+    "B",    # flake8-bugbear (распространённые баги)
+    "SIM",  # flake8-simplify
+    "C4",   # comprehensions
+    "RUF",  # ruff-специфичные
+]
+ignore = [
+    "E501",   # line too long — отдаём это black
+    "B008",   # function-call-in-default-argument — у pydantic Field это норма
+    "RUF001", # ambiguous-unicode — кириллица в текстах естественна
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/migrate_json_to_db.py" = ["F401"]   # ORM-импорты Article/Post используются неявно
+
+# ─── MYPY ────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+disallow_untyped_defs = false   # включим в T1.10, когда добавим типы массово
+disallow_incomplete_defs = false
+ignore_missing_imports = true   # у feedparser нет stubs
+exclude = [
+    "migrations/versions/",
+    "build/",
+    "dist/",
+]
+
+[[tool.mypy.overrides]]
+module = ["feedparser.*", "sentry_sdk.*"]
+ignore_missing_imports = true
+
+# ─── PYTEST ──────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning:pkg_resources.*",
+]

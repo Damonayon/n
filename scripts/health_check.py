@@ -18,15 +18,16 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import requests  # noqa: E402
+from sqlalchemy import delete, func, select, update  # noqa: E402
 
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
@@ -37,11 +38,8 @@ from bot.http import (  # noqa: E402
     set_deadline,
 )
 from bot.logging_setup import get_logger, setup_logging  # noqa: E402
-from bot.models import LogEntry, Post, POST_STATUS_FAILED, POST_STATUS_PENDING  # noqa: E402
+from bot.models import POST_STATUS_FAILED, POST_STATUS_PENDING, LogEntry, Post  # noqa: E402
 from bot.storage import ensure_channel, get_state, set_state  # noqa: E402
-
-from sqlalchemy import delete, select, update, func  # noqa: E402
-
 
 log = get_logger("health_check")
 settings = get_settings()
@@ -85,9 +83,7 @@ def check_github_models() -> tuple[bool, str]:
     Реальный API требует POST с токеном; проверим 4xx/5xx по корню."""
     try:
         # На корень эндпоинт отвечает 404 — это нормально, нам важна сама связность.
-        resp = http_get(
-            "https://models.inference.ai.azure.com/", timeout=10
-        )
+        resp = http_get("https://models.inference.ai.azure.com/", timeout=10)
         # 200/401/403/404 — хост жив; 5xx — проблемы
         if resp.status_code >= 500:
             return False, f"github models HTTP {resp.status_code}"
@@ -123,7 +119,7 @@ def check_rss() -> tuple[bool, str]:
 
 def cleanup_stale_pending() -> int:
     """Помечает FAILED все pending-посты старше PENDING_TTL_HOURS."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=PENDING_TTL_HOURS)
+    cutoff = datetime.now(UTC) - timedelta(hours=PENDING_TTL_HOURS)
     with session_scope() as session:
         stmt = (
             update(Post)
@@ -131,7 +127,7 @@ def cleanup_stale_pending() -> int:
                 Post.status == POST_STATUS_PENDING,
                 Post.created_at < cutoff,
             )
-            .values(status=POST_STATUS_FAILED, decided_at=datetime.now(timezone.utc))
+            .values(status=POST_STATUS_FAILED, decided_at=datetime.now(UTC))
         )
         result = session.execute(stmt)
         return result.rowcount or 0
@@ -140,7 +136,7 @@ def cleanup_stale_pending() -> int:
 def cleanup_old_logs() -> int:
     """Удаляет старые логи (старше LOG_RETENTION_DAYS) ИЛИ если таблица больше лимита."""
     deleted = 0
-    cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
+    cutoff = datetime.now(UTC) - timedelta(days=LOG_RETENTION_DAYS)
     with session_scope() as session:
         total = session.execute(select(func.count()).select_from(LogEntry.__table__)).scalar() or 0
 
@@ -183,8 +179,11 @@ def main() -> None:
     set_deadline(HEALTHCHECK_DEADLINE_SEC)
     init_db()
 
-    log.info("=== Health-check [%s] — %s ===",
-             settings.channel_topic, datetime.now().strftime("%Y-%m-%d %H:%M"))
+    log.info(
+        "=== Health-check [%s] — %s ===",
+        settings.channel_topic,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
 
     # Обеспечим существование канала, чтобы метаданные были консистентны
     with session_scope() as session:
@@ -202,15 +201,16 @@ def main() -> None:
     # Чистка
     stale = cleanup_stale_pending()
     if stale:
-        log.warning("Помечено как FAILED %d просроченных pending-постов (>%dч)",
-                    stale, PENDING_TTL_HOURS)
+        log.warning(
+            "Помечено как FAILED %d просроченных pending-постов (>%dч)", stale, PENDING_TTL_HOURS
+        )
 
     deleted_logs = cleanup_old_logs()
     if deleted_logs:
         log.info("Удалено старых записей logs: %d", deleted_logs)
 
     all_ok = all(ok for ok, _ in results.values())
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # Сохраняем статус и определяем, нужен ли алерт (только при переходе OK→FAIL)
     with session_scope() as session:

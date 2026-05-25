@@ -22,7 +22,6 @@ import time
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
 
 import feedparser
 import requests
@@ -50,8 +49,7 @@ from bot.storage import (  # noqa: E402
     known_article_hashes,
     save_article,
 )
-from bot.utils import best_telegram_file_id, canonicalize_url  # noqa: E402
-
+from bot.utils import best_telegram_file_id  # noqa: E402
 
 # ─── Константы внешних сервисов ──────────────────────────────────────────────
 GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/chat/completions"
@@ -323,7 +321,7 @@ def _call_model(model: str, messages: list[dict], temperature: float, max_tokens
 
 def call_ai(
     messages: list[dict], *, temperature: float = 0.7, max_tokens: int = 1500
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Возвращает (content, model_used).
 
     http_post сам ретраит 429/5xx с exponential backoff. Здесь мы лишь
@@ -338,14 +336,12 @@ def call_ai(
                 content = resp.json()["choices"][0]["message"]["content"].strip()
                 return content, model
             # 400/404: модель недоступна → пробуем следующую (без retry)
-            log.warning(
-                "%s недоступна (HTTP %d): %s", model, resp.status_code, resp.text[:150]
-            )
+            log.warning("%s недоступна (HTTP %d): %s", model, resp.status_code, resp.text[:150])
         except RetryableHttpStatus as exc:
             # Все ретраи исчерпаны (rate limit / 5xx) — пробуем след. модель
             log.warning("%s: исчерпаны ретраи (%s)", model, exc)
             last_err = exc
-        except (CircuitOpenError, DeadlineExceededError) as exc:
+        except (CircuitOpenError, DeadlineExceededError):
             # Это уже не наше дело — пробрасываем наверх
             raise
         except requests.RequestException as exc:
@@ -367,7 +363,7 @@ def _extract_json(raw: str) -> dict:
 # ─── Фильтр качества ─────────────────────────────────────────────────────────
 
 
-def filter_article(article: dict) -> Tuple[str, str]:
+def filter_article(article: dict) -> tuple[str, str]:
     messages = [
         {"role": "system", "content": FILTER_SYSTEM},
         {"role": "user", "content": FILTER_PROMPT.format(**article)},
@@ -386,7 +382,10 @@ def filter_article(article: dict) -> Tuple[str, str]:
 
 def detect_rubric(article: dict) -> str:
     text = (article["title"] + " " + article["summary"]).lower()
-    if any(w in text for w in ["launch", "release", "запуск", "релиз", "выпустил", "представил", "анонс"]):
+    if any(
+        w in text
+        for w in ["launch", "release", "запуск", "релиз", "выпустил", "представил", "анонс"]
+    ):
         return "🚀 Запуск/Релиз нового продукта"
     if any(w in text for w in ["уволил", "fired", "laid off", "сократил", "закрыл"]):
         return "🔻 Корпоративная новость/Скандал"
@@ -402,7 +401,7 @@ def detect_rubric(article: dict) -> str:
 # ─── Генерация поста ─────────────────────────────────────────────────────────
 
 
-def parse_post(raw: str) -> Tuple[str, str]:
+def parse_post(raw: str) -> tuple[str, str]:
     data = _extract_json(raw)
     post_text = data.get("post", "").strip()
     image_prompt = data.get("image_prompt", "").strip()
@@ -431,7 +430,7 @@ def ensure_correct_link(post_text: str, article_url: str) -> str:
     return post_text.rstrip() + f"\n\n{correct}"
 
 
-def generate_post_content(article: dict, rubric: str) -> Tuple[str, str, str]:
+def generate_post_content(article: dict, rubric: str) -> tuple[str, str, str]:
     """Возвращает (post_text, image_prompt, model_used)."""
     prompt = GENERATOR_PROMPT.format(
         title=article["title"],
@@ -475,9 +474,7 @@ def build_image_url(prompt: str) -> str:
 # ─── Telegram: отправка на одобрение ─────────────────────────────────────────
 
 
-def send_for_approval(
-    post_text: str, image_url: str, art_hash_str: str
-) -> Tuple[int, str | None]:
+def send_for_approval(post_text: str, image_url: str, art_hash_str: str) -> tuple[int, str | None]:
     """Отправляет пост модератору. Возвращает (message_id, file_id|None).
 
     file_id важен: при публикации мы используем его, а не image_url,
@@ -510,9 +507,7 @@ def send_for_approval(
     if result.get("ok"):
         file_id = best_telegram_file_id(result)
     else:
-        log.warning(
-            "Фото не загрузилось (%s), отправляю текстом", result.get("description")
-        )
+        log.warning("Фото не загрузилось (%s), отправляю текстом", result.get("description"))
         result = http_post(
             f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
             json={
@@ -535,8 +530,9 @@ def send_for_approval(
 def main() -> None:
     setup_logging()
     set_deadline(PROCESS_DEADLINE_SEC)
-    log.info("=== Канал «%s» — %s ===", settings.channel_topic,
-             datetime.now().strftime("%Y-%m-%d %H:%M"))
+    log.info(
+        "=== Канал «%s» — %s ===", settings.channel_topic, datetime.now().strftime("%Y-%m-%d %H:%M")
+    )
 
     init_db()
 
@@ -556,8 +552,10 @@ def main() -> None:
             log.info("Нет новых статей.")
             return
 
-        log.info("Фильтрация качества top-%d кандидатов:",
-                 min(MAX_CANDIDATES_TO_FILTER, len(new_articles)))
+        log.info(
+            "Фильтрация качества top-%d кандидатов:",
+            min(MAX_CANDIDATES_TO_FILTER, len(new_articles)),
+        )
         best_article: dict | None = None
         first_medium: dict | None = None
 
@@ -603,9 +601,7 @@ def main() -> None:
         log.info("Image: %s", image_prompt[:80])
 
         image_url = build_image_url(image_prompt)
-        msg_id, image_file_id = send_for_approval(
-            post_text, image_url, best_article["id"]
-        )
+        msg_id, image_file_id = send_for_approval(post_text, image_url, best_article["id"])
         log.info(
             "✅ Отправлено модератору (msg_id=%d, file_id=%s)",
             msg_id,
@@ -639,11 +635,8 @@ def main() -> None:
 
     except Exception as exc:
         # log.exception сам прицепит traceback и сработает Telegram-алерт + Sentry
-        log.exception("Сбой пайплайна [%s]: %s",
-                      settings.channel_topic, type(exc).__name__)
-        notify_moderator(
-            f"❌ Сбой [{settings.channel_topic}]: {type(exc).__name__}: {exc}"
-        )
+        log.exception("Сбой пайплайна [%s]: %s", settings.channel_topic, type(exc).__name__)
+        notify_moderator(f"❌ Сбой [{settings.channel_topic}]: {type(exc).__name__}: {exc}")
         raise
 
 

@@ -7,11 +7,9 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-from typing import Iterable, Optional
+from datetime import UTC, datetime
 
-from sqlalchemy import select, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from bot.config import get_settings
@@ -27,7 +25,6 @@ from bot.models import (
 )
 from bot.utils import canonicalize_url
 
-
 # ─── channels ────────────────────────────────────────────────────────────────
 
 
@@ -36,9 +33,7 @@ def ensure_channel(session: Session) -> Channel:
     settings = get_settings()
     slug = settings.channel_slug
 
-    channel = session.execute(
-        select(Channel).where(Channel.slug == slug)
-    ).scalar_one_or_none()
+    channel = session.execute(select(Channel).where(Channel.slug == slug)).scalar_one_or_none()
 
     if channel is None:
         channel = Channel(
@@ -91,17 +86,15 @@ def save_article(
     url: str,
     title: str,
     summary: str,
-    source_feed: Optional[str] = None,
-    quality: Optional[str] = None,
-    quality_reason: Optional[str] = None,
-    rubric: Optional[str] = None,
+    source_feed: str | None = None,
+    quality: str | None = None,
+    quality_reason: str | None = None,
+    rubric: str | None = None,
 ) -> Article:
     """Сохраняет статью (upsert по channel_id + article_hash)."""
     h = article_hash(url)
     existing = session.execute(
-        select(Article).where(
-            Article.channel_id == channel_id, Article.article_hash == h
-        )
+        select(Article).where(Article.channel_id == channel_id, Article.article_hash == h)
     ).scalar_one_or_none()
 
     if existing is not None:
@@ -138,11 +131,11 @@ def create_pending_post(
     article: Article,
     channel_id: int,
     post_text: str,
-    image_url: Optional[str],
-    image_prompt: Optional[str],
+    image_url: str | None,
+    image_prompt: str | None,
     moderator_msg_id: int,
-    image_file_id: Optional[str] = None,
-    model_used: Optional[str] = None,
+    image_file_id: str | None = None,
+    model_used: str | None = None,
 ) -> Post:
     """Создаёт пост в статусе pending (отправлен модератору)."""
     post = Post(
@@ -161,9 +154,7 @@ def create_pending_post(
     return post
 
 
-def get_pending_by_article_hash(
-    session: Session, channel_id: int, art_hash: str
-) -> Optional[Post]:
+def get_pending_by_article_hash(session: Session, channel_id: int, art_hash: str) -> Post | None:
     """Достаёт pending-пост по хэшу статьи (то, чем были callback_data в Telegram)."""
     return session.execute(
         select(Post)
@@ -177,7 +168,7 @@ def get_pending_by_article_hash(
 
 
 def mark_published(session: Session, post: Post) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     post.status = POST_STATUS_PUBLISHED
     post.decided_at = now
     post.published_at = now
@@ -185,13 +176,13 @@ def mark_published(session: Session, post: Post) -> None:
 
 def mark_rejected(session: Session, post: Post) -> None:
     post.status = POST_STATUS_REJECTED
-    post.decided_at = datetime.now(timezone.utc)
+    post.decided_at = datetime.now(UTC)
 
 
 # ─── system_state ────────────────────────────────────────────────────────────
 
 
-def get_state(session: Session, key: str) -> Optional[str]:
+def get_state(session: Session, key: str) -> str | None:
     row = session.get(SystemState, key)
     return row.value if row else None
 

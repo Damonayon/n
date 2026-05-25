@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 # Чтобы скрипт работал и через `python scripts/migrate_json_to_db.py`,
@@ -111,8 +111,8 @@ def migrate_pending(session, channel_id: int) -> int:
         url = item.get("url") or f"migrated://pending/{art_hash_key}"
         # У статьи в pending уже может быть полноценный URL — используем его,
         # тогда article_hash будет «настоящий», а не плейсхолдер.
-        # Если есть и совпадает — используем «настоящий», иначе — старый ключ.
-        real_hash = article_hash(url) if not url.startswith("migrated://") else art_hash_key
+        # Если ключа в pending не соответствует hash от URL — это нормально,
+        # старая запись по ключу уже создана в migrate_posted_ids (если был).
 
         article = save_article(
             session,
@@ -141,7 +141,7 @@ def migrate_pending(session, channel_id: int) -> int:
                 # 2025-...T...+00:00 или без tz
                 post.created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
                 if post.created_at.tzinfo is None:
-                    post.created_at = post.created_at.replace(tzinfo=timezone.utc)
+                    post.created_at = post.created_at.replace(tzinfo=UTC)
             except ValueError:
                 pass
 

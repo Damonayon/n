@@ -35,7 +35,6 @@ from bot.storage import (  # noqa: E402
     set_state,
 )
 
-
 settings = get_settings()
 log = get_logger("check_approvals")
 
@@ -146,8 +145,11 @@ def remove_buttons(msg_id: int, status_label: str) -> None:
 def main() -> None:
     setup_logging()
     set_deadline(PROCESS_DEADLINE_SEC)
-    log.info("=== Проверка одобрений [%s] — %s ===",
-             settings.channel_topic, datetime.now().strftime("%Y-%m-%d %H:%M"))
+    log.info(
+        "=== Проверка одобрений [%s] — %s ===",
+        settings.channel_topic,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
     init_db()
 
     try:
@@ -187,11 +189,9 @@ def main() -> None:
         log.info("Готово")
 
     except Exception as exc:
-        log.exception("Сбой check_approvals [%s]: %s",
-                      settings.channel_topic, type(exc).__name__)
+        log.exception("Сбой check_approvals [%s]: %s", settings.channel_topic, type(exc).__name__)
         notify_moderator(
-            f"❌ Сбой check_approvals [{settings.channel_topic}]: "
-            f"{type(exc).__name__}: {exc}"
+            f"❌ Сбой check_approvals [{settings.channel_topic}]: {type(exc).__name__}: {exc}"
         )
         raise
 

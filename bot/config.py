@@ -11,11 +11,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # Базовый каталог проекта (на два уровня выше этого файла: bot/ → корень)
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
@@ -23,7 +21,7 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 
 # RSS-источники по умолчанию для ниши «ИИ» — используются,
 # если переменная окружения RSS_FEEDS не задана.
-DEFAULT_AI_FEEDS: List[str] = [
+DEFAULT_AI_FEEDS: list[str] = [
     "https://habr.com/ru/rss/hub/artificial_intelligence/all/",
     "https://habr.com/ru/rss/hub/machine_learning/all/",
     "https://techcrunch.com/category/artificial-intelligence/feed/",
@@ -45,9 +43,7 @@ class Settings(BaseSettings):
 
     # ─── Конфигурация канала ─────────────────────────────────────────
     channel_topic: str = Field("Нейро-новости", alias="CHANNEL_TOPIC")
-    channel_niche: str = Field(
-        "искусственный интеллект и нейросети", alias="CHANNEL_NICHE"
-    )
+    channel_niche: str = Field("искусственный интеллект и нейросети", alias="CHANNEL_NICHE")
     channel_audience: str = Field(
         "русскоязычные, 18-45 лет, интересуются технологиями и будущим",
         alias="CHANNEL_AUDIENCE",
@@ -86,7 +82,7 @@ class Settings(BaseSettings):
         return v.strip()
 
     @property
-    def rss_feeds(self) -> List[str]:
+    def rss_feeds(self) -> list[str]:
         """Парсим строку RSS_FEEDS в список. Если пусто — дефолтные ИИ-фиды."""
         feeds = [u.strip() for u in self.rss_feeds_raw.split(",") if u.strip()]
         return feeds or DEFAULT_AI_FEEDS
@@ -100,7 +96,6 @@ class Settings(BaseSettings):
 def _slugify(text: str) -> str:
     """Превращает 'Нейро-новости' в 'nejro-novosti'-подобный slug."""
     import re
-    from unicodedata import normalize
 
     # Транслитерация кириллицы (упрощённая, для slug)
     table = str.maketrans(
