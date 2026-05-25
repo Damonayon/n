@@ -1,6 +1,6 @@
 ---
 slug: launch_001
-rubric: 🚀 Запуск/Релиз нового продукта
+rubric: launch
 language: русский
 quality_score: 9
 notes: Хук с цифрой + сегментная польза + острый вопрос. Эталон формата.

@@ -1,6 +1,6 @@
 ---
 slug: investment_001
-rubric: 💰 Инвестиции/Финансы
+rubric: investment
 language: русский
 quality_score: 9
 notes: Деньги в хуке + конкретика + сегмент пользы + сарказм.

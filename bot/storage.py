@@ -230,3 +230,43 @@ def with_session(func: F) -> F:
             return func(session, *args, **kwargs)
 
     return cast(F, wrapper)
+
+
+# ─── история рубрик ─────────────────────────────────────────────────────────
+
+
+def recent_post_rubrics(session: Session, channel_id: int, *, limit: int = 5) -> list[str]:
+    """Возвращает slug'и рубрик последних N постов канала (только опубликованных).
+
+    Используется balancer'ом в bot.classifier — чтобы не публиковать одну
+    рубрику несколько раз подряд.
+
+    Рубрика хранится на Article (поле Article.rubric — emoji-имя). Маппим
+    обратно в slug через bot.rubrics.by_name. Посты с нестандартной/устаревшей
+    рубрикой игнорируются.
+    """
+    from bot.rubrics import by_name
+
+    rows = list(
+        session.execute(
+            select(Article.rubric)
+            .join(Post, Post.article_id == Article.id)
+            .where(
+                Post.channel_id == channel_id,
+                Post.status == POST_STATUS_PUBLISHED,
+                Article.rubric.is_not(None),
+            )
+            .order_by(Post.created_at.desc())
+            .limit(limit)
+        ).scalars()
+    )
+    slugs: list[str] = []
+    for name in rows:
+        if name is None:
+            continue
+        r = by_name(name)
+        if r is not None:
+            slugs.append(r.slug)
+    # Возвращаем в хронологическом порядке (старейший первым), как ожидает balancer
+    slugs.reverse()
+    return slugs

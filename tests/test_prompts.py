@@ -74,7 +74,8 @@ class TestParseFewShotFile:
         path = Path(__file__).resolve().parent.parent / "prompts" / "few_shot" / "launch_001.md"
         data = parse_few_shot_file(path)
         assert data["slug"] == "launch_001"
-        assert "Запуск" in data["rubric"]
+        # T2.5: rubric теперь — slug из bot.rubrics, не emoji-имя
+        assert data["rubric"] == "launch"
         assert data["language"] == "русский"
         assert "v0" in data["body"]
 

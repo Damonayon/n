@@ -1,6 +1,6 @@
 ---
 slug: scandal_001
-rubric: 🔻 Корпоративная новость/Скандал
+rubric: scandal
 language: русский
 quality_score: 9
 notes: Удар хуком + конкретика бренда + угроза читателю + личный вопрос.

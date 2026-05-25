@@ -187,25 +187,38 @@ def filter_article(article: dict[str, Any]) -> tuple[str, str]:
         return "MEDIUM", "ошибка парсинга"
 
 
-# ─── Определение рубрики (эвристика) ─────────────────────────────────────────
+# ─── Определение рубрики (AI-классификатор + балансировка) ──────────────────
+#
+# T2.5 — заменили эвристику по ключевым словам на AI-классификатор (W4 из аудита).
+# Используется bot.classifier.classify_article, который:
+#   1. Спрашивает gpt-4o-mini (через ModelTier.CHEAP) — какая рубрика?
+#   2. При confidence < 0.5 — fallback на heuristic_detect → DEFAULT_RUBRIC
+#   3. apply_anti_repeat — если 2+ раз подряд была эта рубрика, переключает.
 
 
-def detect_rubric(article: dict[str, Any]) -> str:
-    text = (article["title"] + " " + article["summary"]).lower()
-    if any(
-        w in text
-        for w in ["launch", "release", "запуск", "релиз", "выпустил", "представил", "анонс"]
-    ):
-        return "🚀 Запуск/Релиз нового продукта"
-    if any(w in text for w in ["уволил", "fired", "laid off", "сократил", "закрыл"]):
-        return "🔻 Корпоративная новость/Скандал"
-    if any(w in text for w in ["%", "percent", "study", "research", "исследование", "опрос"]):
-        return "📊 Исследование/Цифра дня"
-    if any(w in text for w in ["tool", "app", "инструмент", "приложение", "сервис"]):
-        return "🔧 Новый инструмент"
-    if any(w in text for w in ["billion", "million", "raised", "funding", "млрд", "млн", "инвест"]):
-        return "💰 Инвестиции/Финансы"
-    return "🤖 Новость дня"
+def detect_rubric_for_article(
+    article: dict[str, Any], recent_slugs: list[str]
+) -> tuple[str, str, str]:
+    """Возвращает (rubric_name, structure_hint, cta_style).
+
+    rubric_name — человекочитаемое имя с emoji (для записи в Article.rubric и логов).
+    structure_hint и cta_style — подмешиваются в промпт генератора.
+    """
+    from bot.classifier import classify_article
+
+    result = classify_article(
+        title=article["title"],
+        summary=article["summary"],
+        recent_slugs=recent_slugs,
+    )
+    log.info(
+        "Рубрика: %s (источник=%s, confidence=%.2f) — %s",
+        result.rubric.name,
+        result.source,
+        result.confidence,
+        result.reason,
+    )
+    return result.rubric.name, result.rubric.structure_hint, result.rubric.cta_style
 
 
 # ─── Генерация поста ─────────────────────────────────────────────────────────
@@ -263,7 +276,13 @@ class GeneratedPost:
     few_shot_slugs_json: str | None  # T2.4: JSON-список slug'ов эталонов
 
 
-def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost:
+def generate_post_content(
+    article: dict[str, Any],
+    rubric: str,
+    *,
+    structure_hint: str = "",
+    cta_style: str = "",
+) -> GeneratedPost:
     """Полный pipeline генерации с двухступенчатым quality gate.
 
     Шаги:
@@ -289,7 +308,15 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost
 
     # T2.4: грузим активный промпт + рандомные few-shot эталоны
     gen_prompt = get_active_prompt("generator")
-    examples = sample_few_shot(rubric=rubric, count=3, language=settings.channel_lang)
+    # rubric пришёл как name с emoji ("🚀 Запуск/Релиз") — для матчинга в БД
+    # нужен slug. Маппим обратно через bot.rubrics.by_name.
+    from bot.rubrics import by_name
+
+    rubric_obj = by_name(rubric)
+    rubric_slug_for_sampling = rubric_obj.slug if rubric_obj else "any"
+    examples = sample_few_shot(
+        rubric=rubric_slug_for_sampling, count=3, language=settings.channel_lang
+    )
     few_shot_block = format_few_shot_for_prompt(examples)
     few_shot_slugs = [e.slug for e in examples]
     few_shot_slugs_json = json.dumps(few_shot_slugs, ensure_ascii=False)
@@ -313,6 +340,19 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> GeneratedPost
         lang=settings.channel_lang,
         few_shot_examples=few_shot_block,
     )
+
+    # T2.5: рубрика-специфичные подсказки подмешиваются в конец user-промпта,
+    # после общих требований. Это даёт модели тонкую настройку стиля под тип контента.
+    if structure_hint or cta_style:
+        base_prompt += (
+            f"\n\n═══════════════════════════════════════════════\n"
+            f"СТИЛЬ ПОД РУБРИКУ «{rubric}»\n"
+            f"═══════════════════════════════════════════════\n"
+        )
+        if structure_hint:
+            base_prompt += f"Структура: {structure_hint}\n"
+        if cta_style:
+            base_prompt += f"CTA: {cta_style}\n"
 
     last_err: Exception | None = None
     last_validation: str | None = None
@@ -570,10 +610,18 @@ def main() -> None:
 
         log.info("📝 Генерируем пост для: %s", best_article["title"])
 
-        rubric = detect_rubric(best_article)
-        log.info("Рубрика: %s", rubric)
+        # T2.5: получаем недавнюю историю рубрик канала для anti-repeat балансировщика
+        from bot.storage import recent_post_rubrics
 
-        result = generate_post_content(best_article, rubric)
+        with session_scope() as session:
+            recent_slugs = recent_post_rubrics(session, channel_id, limit=5)
+        log.info("Недавняя история рубрик: %s", recent_slugs or "пусто")
+
+        rubric, structure_hint, cta_style = detect_rubric_for_article(best_article, recent_slugs)
+
+        result = generate_post_content(
+            best_article, rubric, structure_hint=structure_hint, cta_style=cta_style
+        )
         log.info(
             "Пост готов: %d символов, модель=%s, quality=%s",
             len(result.post_text),

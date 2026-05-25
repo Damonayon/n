@@ -1,6 +1,6 @@
 ---
 slug: number_001
-rubric: 📊 Исследование/Цифра дня
+rubric: number_of_day
 language: русский
 quality_score: 9
 notes: Цифра в крючке + bullet-список фактов + загадочная провокация.

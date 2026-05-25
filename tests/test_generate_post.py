@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from bot.rubrics import RUBRICS, by_slug, heuristic_detect
 from scripts.generate_post import (
     _extract_json,
-    detect_rubric,
     ensure_correct_link,
     parse_post,
 )
@@ -70,21 +70,45 @@ class TestEnsureCorrectLink:
         assert 'href="https://wrong.com/y"' not in result
 
 
-class TestDetectRubric:
+class TestRubricsCatalog:
+    """T2.5 — каталог 16+ рубрик."""
+
+    def test_catalog_has_15plus(self) -> None:
+        assert len(RUBRICS) >= 15
+
+    def test_all_rubrics_have_required_metadata(self) -> None:
+        for r in RUBRICS.values():
+            assert r.name and r.description and r.tone and r.cta_style
+            assert r.triggers, f"{r.slug}: пустые triggers"
+
+
+class TestHeuristicDetect:
+    """Backup-эвристика по ключевым словам — для случая если AI лежит."""
+
     @pytest.mark.parametrize(
-        ("title", "summary", "expected_emoji"),
+        ("text", "expected_slug"),
         [
-            ("OpenAI launches new model", "", "🚀"),
-            ("Компания представила новый продукт", "", "🚀"),
-            ("Google уволил 12000 сотрудников", "", "🔻"),
-            ("Microsoft fired 10000 employees", "", "🔻"),
-            ("Study shows 73% use ChatGPT", "", "📊"),
-            ("Новое исследование: ИИ работает", "", "📊"),
-            ("Best AI tool for developers", "popular service for everyone", "🔧"),
-            ("Stripe raised $1 billion in funding", "", "💰"),
-            ("Random news headline", "Some other content", "🤖"),
+            ("OpenAI launches new model", "launch"),
+            ("Компания представила новый продукт", "launch"),
+            ("Google уволил 12000 сотрудников", "scandal"),
+            ("Microsoft fired 10000 employees", "scandal"),
+            ("Study shows 73% use ChatGPT", "number_of_day"),
+            # «исследование» — trigger у number_of_day (раньше идёт в каталоге)
+            ("Новое исследование: ИИ работает", "number_of_day"),
+            # research отличается специфичными триггерами (Стэнфорд / MIT / paper)
+            ("MIT paper proves AI mimics humans", "research"),
+            ("Stripe raised $1 billion in funding", "investment"),
         ],
     )
-    def test_keyword_routing(self, title: str, summary: str, expected_emoji: str) -> None:
-        rubric = detect_rubric({"title": title, "summary": summary})
-        assert rubric.startswith(expected_emoji)
+    def test_keyword_routing(self, text: str, expected_slug: str) -> None:
+        result = heuristic_detect(text)
+        assert result == expected_slug, f"Expected {expected_slug} for {text!r}, got {result}"
+
+    def test_unknown_returns_none(self) -> None:
+        # Случайная фраза без trigger-слов — эвристика молчит
+        assert heuristic_detect("xqz random text 42") is None
+
+    def test_by_slug_matches_catalog(self) -> None:
+        for slug in RUBRICS:
+            r = by_slug(slug)
+            assert r.slug == slug

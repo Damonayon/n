@@ -1,6 +1,6 @@
 ---
 slug: tool_001
-rubric: 🔧 Новый инструмент
+rubric: launch
 language: русский
 quality_score: 8
 notes: Конкретный use-case + цифры по производительности + многослойный сегмент пользы.
