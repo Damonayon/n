@@ -143,6 +143,7 @@ def create_pending_post(
     critic_feedback: str | None = None,
     prompt_version_id: int | None = None,
     few_shot_slugs_json: str | None = None,
+    fact_check_json: str | None = None,
 ) -> Post:
     """Создаёт пост в статусе pending (отправлен модератору).
 
@@ -163,6 +164,7 @@ def create_pending_post(
         critic_feedback=critic_feedback,
         prompt_version_id=prompt_version_id,
         few_shot_slugs_json=few_shot_slugs_json,
+        fact_check_json=fact_check_json,
         status=POST_STATUS_PENDING,
     )
     session.add(post)

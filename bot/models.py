@@ -149,6 +149,10 @@ class Post(Base):
     # JSON-список slug'ов (например ["launch_001", "scandal_001"]). Нужно для
     # ретро-анализа: какие эталоны коррелируют с высокими/низкими оценками критика.
     few_shot_slugs_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Результат fact-check (T2.6) — JSON с issues и AI-summary. Сохраняем
+    # ПО ВСЕМ постам (даже одобренным), чтобы можно было считать частоту
+    # типов галлюцинаций (number_not_in_source vs name_not_in_source vs AI).
+    fact_check_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True

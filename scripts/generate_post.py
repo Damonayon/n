@@ -274,6 +274,7 @@ class GeneratedPost:
     critic_preview: str | None
     prompt_version_id: int | None  # T2.4: ссылка на использованную версию промпта
     few_shot_slugs_json: str | None  # T2.4: JSON-список slug'ов эталонов
+    fact_check_json: str | None  # T2.6: результат fact-check (Python + AI)
 
 
 def generate_post_content(
@@ -410,6 +411,16 @@ def generate_post_content(
             c_result: CriticResult = critique_post(post_text)
             log.info("Critic [%s]: %s", attempt_label, c_result.summary())
 
+            # 3) Fact-check (T2.6) — защита от галлюцинаций
+            # Делаем ПОСЛЕ критика, но ДО approve. Если есть CRITICAL (выдуманная
+            # цифра/дата) — отклоняем независимо от критика.
+            from bot.fact_check import fact_check_post
+
+            fc_result = fact_check_post(
+                post_text, article.get("summary", ""), use_ai=c_result.approved
+            )
+            log.info("FactCheck [%s]: %s", attempt_label, fc_result.summary())
+
             candidate = GeneratedPost(
                 post_text=post_text,
                 image_prompt=image_prompt,
@@ -420,6 +431,7 @@ def generate_post_content(
                 critic_preview=c_result.short_preview(),
                 prompt_version_id=gen_prompt.id,
                 few_shot_slugs_json=few_shot_slugs_json,
+                fact_check_json=fc_result.to_json(),
             )
 
             # Запоминаем лучший вариант для fallback
@@ -428,19 +440,35 @@ def generate_post_content(
             ):
                 best_candidate = candidate
 
-            if c_result.approved:
+            # Одобрение: и критик довольный, и fact-check без CRITICAL проблем
+            if c_result.approved and fc_result.passed:
                 return candidate
 
             critic_attempts += 1
-            critic_feedback_for_prompt = (
-                c_result.feedback or "повысь хук, добавь конкретики и эмоцию"
-            )
-            log.warning(
-                "  ❌ критик отклонил: %s — критик-попытка %d/%d",
-                c_result.rejection_reason or critic_feedback_for_prompt,
-                critic_attempts,
-                MAX_REGENERATIONS + 1,
-            )
+            # Feedback для следующей попытки: либо от критика, либо от fact-check
+            if not fc_result.passed:
+                critic_issues = [i for i in fc_result.issues if i.severity.value == "critical"]
+                critic_feedback_for_prompt = (
+                    "fact-check нашёл выдуманные данные: "
+                    + "; ".join(f"«{i.fragment}»" for i in critic_issues[:3])
+                    + ". Используй ТОЛЬКО факты из исходной статьи."
+                )
+                log.warning(
+                    "  ❌ fact-check отклонил (CRITICAL): %d issues — попытка %d/%d",
+                    len(critic_issues),
+                    critic_attempts,
+                    MAX_REGENERATIONS + 1,
+                )
+            else:
+                critic_feedback_for_prompt = (
+                    c_result.feedback or "повысь хук, добавь конкретики и эмоцию"
+                )
+                log.warning(
+                    "  ❌ критик отклонил: %s — критик-попытка %d/%d",
+                    c_result.rejection_reason or critic_feedback_for_prompt,
+                    critic_attempts,
+                    MAX_REGENERATIONS + 1,
+                )
             time.sleep(2)
         except (json.JSONDecodeError, ValueError) as exc:
             validation_attempts += 1
@@ -682,6 +710,7 @@ def main() -> None:
                 critic_feedback=result.critic_feedback,
                 prompt_version_id=result.prompt_version_id,
                 few_shot_slugs_json=result.few_shot_slugs_json,
+                fact_check_json=result.fact_check_json,
             )
 
         log.info("✅ ГОТОВО")
