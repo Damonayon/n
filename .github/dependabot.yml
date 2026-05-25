@@ -1,0 +1,38 @@
+# Dependabot — автообновление зависимостей с security-алертами.
+# Документация: https://docs.github.com/code-security/dependabot
+
+version: 2
+updates:
+  # ── Python-зависимости ────────────────────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Kyiv"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Объединяем minor/patch обновления в один PR, чтобы не флудило
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ── GitHub Actions (версии actions/checkout@v4 и т.п.) ────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"

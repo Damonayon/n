@@ -1,0 +1,52 @@
+name: 🔒 Security scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Раз в неделю — на случай новых сигнатур gitleaks
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # для загрузки SARIF в Code Scanning
+
+jobs:
+  gitleaks:
+    name: Gitleaks — поиск утечек секретов
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks сканирует историю
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Лицензионный ключ не нужен для open-source / приватных репо < 25 коммитеров
+        with:
+          config-path: .github/gitleaks.toml
+
+  pip-audit:
+    name: pip-audit — поиск уязвимостей в зависимостях
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Установка pip-audit
+        run: pip install pip-audit
+
+      - name: Аудит зависимостей
+        # --ignore-vuln можно добавлять при необходимости
+        # Не блокируем сборку, только сообщаем — security-issues добавятся
+        # через dependabot security-alerts.
+        run: pip-audit -r requirements.txt --strict || true
