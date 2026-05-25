@@ -32,12 +32,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from bot.ai import ModelTier, call_llm  # noqa: E402
 from bot.config import get_settings  # noqa: E402
 from bot.db import init_db, session_scope  # noqa: E402
 from bot.http import (  # noqa: E402
     CircuitOpenError,
     DeadlineExceededError,
-    RetryableHttpStatus,
     http_get,
     http_post,
     set_deadline,
@@ -52,10 +52,7 @@ from bot.storage import (  # noqa: E402
 )
 from bot.utils import best_telegram_file_id  # noqa: E402
 
-# ─── Константы внешних сервисов ──────────────────────────────────────────────
-GITHUB_MODELS_URL = "https://models.inference.ai.azure.com/chat/completions"
-MODELS = ["gpt-4o", "gpt-4o-mini"]
-
+# ─── Константы ───────────────────────────────────────────────────────────────
 # Сколько последних статей брать из каждого RSS-фида
 ENTRIES_PER_FEED = 5
 # Сколько кандидатов прогонять через фильтр качества за один запуск
@@ -300,72 +297,7 @@ IMAGE PROMPT (английский, до 130 символов)
 Верни ТОЛЬКО JSON."""
 
 
-# ─── Вызовы GitHub Models ────────────────────────────────────────────────────
-
-
-def _call_model(
-    model: str,
-    messages: list[dict[str, Any]],
-    temperature: float,
-    max_tokens: int,
-    *,
-    json_mode: bool = False,
-) -> requests.Response:
-    body: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    # JSON mode: модель обязана вернуть валидный JSON-объект.
-    # Поддерживается всеми OpenAI-совместимыми эндпоинтами GitHub Models.
-    # Требует, чтобы в промпте было слово "JSON" (есть в обоих наших промптах).
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-    return http_post(
-        GITHUB_MODELS_URL,
-        headers={
-            "Authorization": f"Bearer {settings.gh_models_token}",
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=60,
-    )
-
-
-def call_ai(
-    messages: list[dict[str, Any]],
-    *,
-    temperature: float = 0.7,
-    max_tokens: int = 1500,
-    json_mode: bool = False,
-) -> tuple[str, str]:
-    """Возвращает (content, model_used).
-
-    http_post сам ретраит 429/5xx с exponential backoff. Здесь мы лишь
-    переключаемся на следующую модель из MODELS, если первая «закончилась»
-    (исчерпан лимит ретраев или модель навсегда недоступна).
-    """
-    last_err: Exception | None = None
-    for model in MODELS:
-        try:
-            resp = _call_model(model, messages, temperature, max_tokens, json_mode=json_mode)
-            if resp.status_code == 200:
-                content = resp.json()["choices"][0]["message"]["content"].strip()
-                return content, model
-            # 400/404: модель недоступна → пробуем следующую (без retry)
-            log.warning("%s недоступна (HTTP %d): %s", model, resp.status_code, resp.text[:150])
-        except RetryableHttpStatus as exc:
-            # Все ретраи исчерпаны (rate limit / 5xx) — пробуем след. модель
-            log.warning("%s: исчерпаны ретраи (%s)", model, exc)
-            last_err = exc
-        except (CircuitOpenError, DeadlineExceededError):
-            # Это уже не наше дело — пробрасываем наверх
-            raise
-        except requests.RequestException as exc:
-            log.warning("%s: сетевая ошибка после ретраев: %s", model, exc)
-            last_err = exc
-    raise RuntimeError(f"Все модели недоступны: {last_err}")
+# ─── JSON-extract из ответа модели ───────────────────────────────────────────
 
 
 def _extract_json(raw: str) -> dict[str, Any]:
@@ -388,7 +320,14 @@ def filter_article(article: dict[str, Any]) -> tuple[str, str]:
         {"role": "user", "content": FILTER_PROMPT.format(**article)},
     ]
     try:
-        raw, _ = call_ai(messages, temperature=0.3, max_tokens=200, json_mode=True)
+        result = call_llm(
+            messages,
+            tier=ModelTier.CHEAP,  # фильтр — дешёвая классификация → gpt-4o-mini
+            temperature=0.3,
+            max_tokens=200,
+            json_mode=True,
+        )
+        raw = result.content
         data = _extract_json(raw)
         return data.get("quality", "LOW"), data.get("reason", "")
     except (json.JSONDecodeError, ValueError, KeyError) as exc:
@@ -467,7 +406,14 @@ def generate_post_content(article: dict[str, Any], rubric: str) -> tuple[str, st
     last_validation: str | None = None
     for attempt in range(3):
         try:
-            raw, model_used = call_ai(messages, temperature=0.85, max_tokens=1500, json_mode=True)
+            llm = call_llm(
+                messages,
+                tier=ModelTier.SMART,  # генерация — творческая → gpt-4o
+                temperature=0.85,
+                max_tokens=1500,
+                json_mode=True,
+            )
+            raw, model_used = llm.content, llm.model_used
             post_text, image_prompt = parse_post(raw)
             post_text = ensure_correct_link(post_text, article["url"])
 
